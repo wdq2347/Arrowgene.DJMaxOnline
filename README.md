@@ -36,7 +36,7 @@ None of these are supplied via the repo. Create them as you go; all are gitignor
 | folder | holds |
 |---|---|
 | `DATA/` | the imported catalogs, the key files, and the player database |
-| `Patterns/` | plaintext charts (`.pt`, `.sr`) |
+| `Patterns/` | plaintext charts (`.pt`) |
 | `songs/` | packed song archives served to the client |
 | `patch/` | what the launcher installs, plus the checksum list and news file |
 
@@ -108,7 +108,7 @@ Re-import whenever you change the client's copy.
 Charts and song archives are not in `system.pak`. They live in the per-song paks in the
 game folder, and like everything else here they are not supplied via the repo.
 
-- plaintext charts (`.pt`, `.sr`) go in `Patterns/`, and the server builds game-info
+- plaintext charts (`.pt`) go in `Patterns/`, and the server builds game-info
   payloads from them on the fly
 - packed song archives go in `songs/` and are served as `/song/<tag>.pak`
 
@@ -133,7 +133,7 @@ knobs:
 | `AdvertisedIpAddress` | `127.0.0.1` | the address handed to clients, so set this to what players can reach |
 | `HttpContentPort` | `8080` | serves `/song/` and `/patch/` |
 | `LoginApiPort` | `8091` | HTTP login for remote launchers |
-| `StatusApiPort` | `8090` | read-only status feed. Local only, do not expose it |
+| `StatusApiPort` | `8090` | read-only status feed. Local only(no rate limit, use this for discord bots or whatever) |
 
 The server console takes commands while it runs. `/help` lists them; the useful ones:
 
@@ -145,8 +145,7 @@ The server console takes commands while it runs. `/help` lists them; the useful 
 /stop
 ```
 
-Passwords are typed at a prompt, never on the command line, and are stored salted and
-hashed per account.
+
 
 ## Launcher
 
