@@ -112,8 +112,6 @@ game folder, and like everything else here they are not supplied via the repo.
   payloads from them on the fly
 - packed song archives go in `songs/` and are served as `/song/<tag>.pak`
 
-A pak's checksums are recorded in `crc.pak` next to the client, not next to the server, so
-that manifest has to be rebuilt whenever a pak changes or the client rejects it.
 
 ---
 
