@@ -1,63 +1,72 @@
-using Arrowgene.Buffers;
+using Arrowgene.DJMaxOnline.Server.Packets;
+using Arrowgene.Logging;
 
 namespace Arrowgene.DJMaxOnline.Server.Handler;
 
+/// <summary>
+/// The pre-login handshake used by the older China-style flow. The Korean client does not
+/// take this path - it goes straight to LogInReq carrying a launcher ticket.
+///
+/// This handler must never hand out an account. It used to attach the server's shared
+/// bootstrap store - the first row of the player database - so anything that sent this
+/// packet became that account, and because LogInReq skips its ticket check when a store is
+/// already attached, that was a complete bypass of authentication. The server now holds no
+/// account until one is loaded from its own launcher ticket, so there is nothing to leak.
+/// </summary>
 public class AuthenticateInSndAccReqHandler : IPacketHandler
 {
+    private static readonly ServerLogger Logger =
+        LogProvider.Logger<ServerLogger>(typeof(AuthenticateInSndAccReqHandler));
+
+    private readonly Func<IReadOnlyList<ChannelInfo>> _channelSnapshot;
+    private readonly LocalPlayerStore? _players;
+
+    public AuthenticateInSndAccReqHandler(
+        Func<IReadOnlyList<ChannelInfo>> channelSnapshot,
+        LocalPlayerStore? players)
+    {
+        _channelSnapshot = channelSnapshot ??
+            throw new ArgumentNullException(nameof(channelSnapshot));
+        _players = players;
+    }
+
     public void Handle(Client client, Packet packet)
     {
-        // OnAuthenticateInAck: [Id:OnAuthenticateInAck(0x10)] [Size:92] [Source:Server]
-        // Header:    1C F9 05 00 00
-        // 00000000   00 00 00 00 07 00 00 00  16 00 00 00 00 00 42 45   ··············BE
-        // 00000010   4C 4C 45 43 4E 00 00 00  00 00 00 00 00 00 00 00   LLECN···········
-        // 00000020   00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00   ················
-        // 00000030   00 00 00 00 00 00 00 00  00 00 00 00 42 45 4C 4C   ············BELL
-        // 00000040   45 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00   E···············
-        // 00000050   00 00 00 00 00                                     ·····           
+        AuthenticationRequest request = AuthenticateInSndAccReqPacket.Parse(packet);
+        if (client.CipherSeed == null ||
+            !request.CipherSeed.AsSpan().SequenceEqual(client.CipherSeed))
+        {
+            client.Close();
+            return;
+        }
 
-        IBuffer buf = new StreamBuffer();
-        buf.WriteBytes(Convert.FromHexString(
-            "00000000070000001600000000004245" +
-            "4C4C45434E0000000000000000000000" +
-            "00000000000000000000000000000000" +
-            "00000000000000000000000042454C4C" +
-            "45000000000000000000000000000000" +
-            "0000000000"
-        ));
+        // Answer only for a connection that has already authenticated. There is no
+        // stand-in identity to fall back on, and inventing one would be a way to reach an
+        // account without a launcher ticket.
+        LocalPlayerStore? store = client.PlayerStore ?? _players;
+        if (store == null)
+        {
+            Logger.Error(client,
+                "Refusing AuthenticateInSndAccReq: no authenticated player on this " +
+                "connection. Log in through the launcher.");
+            client.Close();
+            return;
+        }
 
-        Packet rsp = new Packet(PacketMeta.OnAuthenticateInAck, buf.GetAllBytes());
-        rsp.Header = new byte[] { 0x1C, 0xF9, 0x05, 0x00, 0x00 };
-        client.Send(rsp);  //10
+        LocalPlayerProfile profile = store.Profile;
 
-        // 0b
-        Packet rsp1 = new Packet(PacketMeta.OnChannelInfoInf,
-            new byte[]
-            {
-                 0x01, 0x00, 0xD1, 0x5B, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00,
-                0x62, 0x00, 0x4C, 0x49, 0x47, 0x48, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x2E, 0x5B, 0x35, 0x4B, 0x45, 0x59, 0x5D, 0x20, 0x43, 0x6C, 0x61, 0x73, 0x73, 0x69, 0x63, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x2C, 0x01, 0x65, 0x20, 0x1A, 0x98, 0xD1, 0x5B, 0x00, 0x00, 0x01, 0x00, 0x99, 0x5C, 0x01,
-                0x00, 0x01, 0x00, 0x00, 0x00, 0x62, 0x00, 0x4D, 0x41, 0x4E, 0x49, 0x41, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2E, 0x5B, 0x37, 0x4B, 0x45, 0x59, 0x5D, 0x20, 0x43, 0x6C, 0x61,
-                0x73, 0x73, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x2C, 0x01, 0x65, 0x20, 0x1A, 0x98, 0x99, 0x5C, 0x00, 0x00
-            }
-        );
-        rsp1.Header = new byte[] { 0x48, 0xBB, 0x00, 0x00, 0x00, };
-        client.Send(rsp1);
-        
-        
-        //2f
-        Packet rsp2 = new Packet(PacketMeta.OnUpdateUserAccountClassInf,
-            new byte[] { 0x00, 0x00, 0x04, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC }
+        AuthenticationIdentity identity = new(
+            profile.UserId,
+            AccountClass: profile.AccountClass,
+            Level: profile.Progress.Level,
+            AccountId: profile.AccountId,
+            SecondaryId: profile.SecondaryId,
+            Nickname: profile.Nickname);
 
-        );
-        rsp2.Header = new byte[] {  0x61, 0xF9, 0x05, 0x00, 0x00,  };
-        client.Send(rsp2);
-        
+        client.UserId = profile.UserId;
+        client.Send(OnAuthenticateInAckPacket.Build(identity));
+        client.Send(OnGameStartInfPacket.Build(LocalLobbyBootstrap.GameStartParameters));
+        client.Send(OnChannelInfoInfPacket.Build(_channelSnapshot()));
     }
 
     public PacketId Id => PacketId.AuthenticateInSndAccReq;

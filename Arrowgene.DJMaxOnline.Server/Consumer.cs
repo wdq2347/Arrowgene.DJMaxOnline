@@ -12,8 +12,9 @@ public class Consumer : ThreadedBlockingQueueConsumer
     private readonly Dictionary<ITcpSocket, Client> _clients;
     private readonly object _lock;
     private readonly Setting _setting;
-    public Action<Client> ClientDisconnected;
-    public Action<Client> ClientConnected;
+    private bool _acceptingConnections = true;
+    public event Action<Client>? ClientDisconnected;
+    public event Action<Client>? ClientConnected;
 
     public Consumer(Setting setting)
         : base(setting.AsyncEventSettings, setting.Name)
@@ -37,6 +38,18 @@ public class Consumer : ThreadedBlockingQueueConsumer
         }
     }
 
+    /// <summary>
+    /// Closes every connection accepted after shutdown draining begins. The listening
+    /// socket is stopped as well, but this guard closes the small accept/stop race.
+    /// </summary>
+    public void RefuseNewConnections()
+    {
+        lock (_lock)
+        {
+            _acceptingConnections = false;
+        }
+    }
+
     protected override void HandleReceived(ITcpSocket socket, byte[] data)
     {
         if (!socket.IsAlive)
@@ -44,10 +57,10 @@ public class Consumer : ThreadedBlockingQueueConsumer
             return;
         }
 
-        Client client;
+        Client? client;
         lock (_lock)
         {
-            if (!_clients.TryGetValue(socket, out client))
+            if (!_clients.TryGetValue(socket, out client) || client == null)
             {
                 Logger.Error(socket, "Client does not exist in lookup");
                 return;
@@ -61,11 +74,50 @@ public class Consumer : ThreadedBlockingQueueConsumer
         }
     }
 
+    /// <summary>
+    /// The only packets a socket may send before it has an authenticated player attached.
+    /// Everything else operates on somebody's account, so it is dropped until the launcher
+    /// ticket has been redeemed. This is what makes it safe for the server to hold no
+    /// player at all until a real login happens.
+    /// </summary>
+    private static readonly HashSet<PacketId> PreLoginPackets =
+    [
+        PacketId.ConnectReq,
+        PacketId.JpConnectConfirmReq,
+        PacketId.AuthenticateInSndAccReq,
+        PacketId.LogInReq,
+        PacketId.KeepAuthenticateInReq,
+        PacketId.PingTestInf,
+        PacketId.OnPingTestInf
+    ];
+
     private void HandlePacket(Client client, Packet packet)
     {
         if (!_packetHandlerLookup.TryGetValue(packet.Id, out var packetHandler))
         {
             Logger.LogUnhandledPacket(client, packet);
+            return;
+        }
+
+        // A KICKED CLIENT GETS NO FURTHER REPLIES. Not one.
+        //
+        // The client keeps its disconnect reason in a single field (net+895300) that every
+        // one of its packet handlers zeroes on entry. It also keeps pinging after being told
+        // to go, so answering even a keepalive wipes the reason before the disconnect scene
+        // can read it and draw the dialog. Observed exactly that: an OnPingTestInf and an
+        // OnInviteRejectAck went out in the two seconds after a ban and blanked the message.
+        //
+        // Dropping their packets here means nothing can be sent in reply, whatever the
+        // handler would have done.
+        if (client.Kicked)
+        {
+            return;
+        }
+
+        if (client.PlayerStore == null && !PreLoginPackets.Contains(packet.Id))
+        {
+            Logger.Error(client,
+                $"Dropped {packet.Id} from a socket with no authenticated player.");
             return;
         }
 
@@ -95,7 +147,7 @@ public class Consumer : ThreadedBlockingQueueConsumer
             _clients.Remove(socket);
         }
 
-        Action<Client> onClientDisconnected = ClientDisconnected;
+        Action<Client>? onClientDisconnected = ClientDisconnected;
         if (onClientDisconnected != null)
         {
             try
@@ -114,14 +166,23 @@ public class Consumer : ThreadedBlockingQueueConsumer
     protected override void HandleConnected(ITcpSocket socket)
     {
         Client client = new Client(socket, new PacketFactory());
+        bool accepted;
         lock (_lock)
         {
             _clients.Add(socket, client);
+            accepted = _acceptingConnections;
+        }
+
+        if (!accepted)
+        {
+            Logger.Info($"Refused connection during shutdown drain: {client.Identity}");
+            client.Close();
+            return;
         }
 
         Logger.Info($"Connected: {client.Identity}");
 
-        Action<Client> onClientConnected = ClientConnected;
+        Action<Client>? onClientConnected = ClientConnected;
         if (onClientConnected != null)
         {
             try

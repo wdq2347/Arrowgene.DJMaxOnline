@@ -1,10 +1,12 @@
 ﻿using System.Buffers.Binary;
-using Arrowgene.Buffers;
+using Arrowgene.DJMaxOnline.Server.Packets;
 
 namespace Arrowgene.DJMaxOnline.Server;
 
 public class DjMaxCrypto
 {
+    private const int SumSeedOffset = 28;
+
     private class DjMaxCryptoState
     {
         private readonly MersenneTwister _mt;
@@ -56,20 +58,68 @@ public class DjMaxCrypto
     private readonly byte[] _mtSeed;
 
     public DjMaxCrypto(byte[] mtSeed, uint sumSeed)
+        : this(mtSeed, sumSeed, requireKoreaSeedSize: true)
     {
+    }
+
+    private DjMaxCrypto(byte[] mtSeed, uint sumSeed, bool requireKoreaSeedSize)
+    {
+        if (requireKoreaSeedSize && mtSeed.Length != OnConnectAckPacket.SeedSize)
+        {
+            throw new ArgumentException(
+                $"Cipher seed must be {OnConnectAckPacket.SeedSize} bytes.", nameof(mtSeed));
+        }
+
         _sumSeed = sumSeed;
         _mtSeed = mtSeed;
         _enc = new DjMaxCryptoState(_mtSeed, _sumSeed);
         _dec = new DjMaxCryptoState(_mtSeed, _sumSeed);
     }
 
+    /// <summary>
+    /// Builds the cipher for the Japanese client's OnConnectAck (id 9). Its handler
+    /// (client sub_430AB0) copies a 30-byte seed and seeds MT19937 via init_by_array
+    /// over the first 7 uint32 words (28 bytes) — sub_44B40C. The XTEA sum seed is
+    /// derived per sub_430A10 as (uint16)(word@28 + dword@24). Same MT+XTEA keystream
+    /// as the Korea path, only the seed shape differs.
+    /// </summary>
+    public static DjMaxCrypto InitJapanese(ReadOnlySpan<byte> seed30)
+    {
+        if (seed30.Length != 30)
+        {
+            throw new ArgumentException("JP cipher seed must be 30 bytes.", nameof(seed30));
+        }
+
+        byte[] mtBytes = seed30[..28].ToArray(); // 7 uint32 for init_by_array
+        // Verified by decrypting the client's first encrypted packet (its auth
+        // echoes our seed back): the XTEA sum seed is the signed int16 at offset
+        // 28 — identical to the Korea DeriveSumSeed, just on the 30-byte layout.
+        short signedSum = BinaryPrimitives.ReadInt16LittleEndian(seed30[28..]);
+        uint sumSeed = unchecked((uint)signedSum);
+        return new DjMaxCrypto(mtBytes, sumSeed, requireKoreaSeedSize: false);
+    }
+
     public static DjMaxCrypto Init()
     {
-        byte[] mtSeed = new byte[32];
+        byte[] mtSeed = new byte[OnConnectAckPacket.SeedSize];
         Random.Shared.NextBytes(mtSeed);
-        IBuffer buf = new StreamBuffer(mtSeed);
-        uint sumSeed = buf.GetUInt32(28);
-        return new DjMaxCrypto(mtSeed, sumSeed);
+        return new DjMaxCrypto(mtSeed, DeriveSumSeed(mtSeed));
+    }
+
+    /// <summary>
+    /// Matches the client's MOVSX of the signed 16-bit value at seed offset 28.
+    /// Negative values are intentionally sign-extended before conversion to uint.
+    /// </summary>
+    public static uint DeriveSumSeed(ReadOnlySpan<byte> mtSeed)
+    {
+        if (mtSeed.Length != OnConnectAckPacket.SeedSize)
+        {
+            throw new ArgumentException(
+                $"Cipher seed must be {OnConnectAckPacket.SeedSize} bytes.", nameof(mtSeed));
+        }
+
+        short signedSeed = BinaryPrimitives.ReadInt16LittleEndian(mtSeed[SumSeedOffset..]);
+        return unchecked((uint)signedSeed);
     }
 
     public void Reset()
@@ -171,53 +221,18 @@ public class DjMaxCrypto
 
     public static DjMaxCrypto FromOnConnectAckPacket(Packet packet)
     {
-        IBuffer buf = packet.GetBuffer();
-        uint a = buf.ReadUInt32();
-        uint b = buf.ReadUInt32();
-        byte[] c = buf.ReadBytes(32 - 4 - 4);
-        a = ~a;
-        b = ~b;
-        IBuffer outBuf = new StreamBuffer();
-        outBuf.WriteUInt32(a);
-        outBuf.WriteUInt32(b);
-        outBuf.WriteBytes(c);
-        byte[] mtSeed = outBuf.GetAllBytes();
-        uint seed = outBuf.GetUInt32(28);
-        return new DjMaxCrypto(mtSeed, seed);
+        (_, _, byte[] mtSeed) = OnConnectAckPacket.Parse(packet);
+        return new DjMaxCrypto(mtSeed, DeriveSumSeed(mtSeed));
     }
 
     public static DjMaxCrypto FromAuthenticateInSndAccReq(Packet packet)
     {
-        IBuffer buf = packet.GetBuffer();
-        buf.Position = 28;
-        uint a = buf.ReadUInt32();
-        uint b = buf.ReadUInt32();
-        byte[] c = buf.ReadBytes(32 - 4 - 4);
-        // a = ~a;
-        //  b = ~b;
-        IBuffer outBuf = new StreamBuffer();
-        outBuf.WriteUInt32(a);
-        outBuf.WriteUInt32(b);
-        outBuf.WriteBytes(c);
-        byte[] mtSeed = outBuf.GetAllBytes();
-        uint seed = outBuf.GetUInt32(28);
-        return new DjMaxCrypto(mtSeed, seed);
+        byte[] mtSeed = AuthenticateInSndAccReqPacket.Parse(packet).CipherSeed;
+        return new DjMaxCrypto(mtSeed, DeriveSumSeed(mtSeed));
     }
 
-    public Packet ToOnConnectAckPacket()
+    public Packet ToOnConnectAckPacket(ushort assignedUserId)
     {
-        IBuffer buf = new StreamBuffer(_mtSeed);
-        uint a = buf.ReadUInt32();
-        uint b = buf.ReadUInt32();
-        byte[] c = buf.ReadBytes(32 - 4 - 4);
-        a = ~a;
-        b = ~b;
-        buf.SetPositionStart();
-        buf.WriteBytes(new byte[] { 0xCC, 0x05, 0x00, 0x4d, 0x01 });
-        buf.WriteUInt32(a);
-        buf.WriteUInt32(b);
-        buf.WriteBytes(c);
-        Packet packet = new Packet(PacketMeta.OnConnectAck, buf.GetAllBytes());
-        return packet;
+        return OnConnectAckPacket.Build(_mtSeed, assignedUserId);
     }
 }

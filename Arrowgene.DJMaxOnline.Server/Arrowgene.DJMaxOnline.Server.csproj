@@ -10,6 +10,14 @@
       <PackageReference Include="Arrowgene.Buffers" Version="1.0.2" />
       <PackageReference Include="Arrowgene.Logging" Version="1.2.1" />
       <PackageReference Include="Arrowgene.Networking" Version="1.0.6" />
+      <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.29" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <!-- The manifest format is shared with the launcher's updater: the server publishes
+           the checksum list that the launcher then verifies against. One definition of the
+           format, not two that can drift apart. -->
+      <ProjectReference Include="..\Arrowgene.DJMaxOnline.Updater\Arrowgene.DJMaxOnline.Updater.csproj" />
     </ItemGroup>
 
 </Project>

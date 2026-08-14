@@ -1,5 +1,7 @@
 ﻿using Arrowgene.Buffers;
+using Arrowgene.DJMaxOnline.Server.Protocol;
 using Arrowgene.Logging;
+using System.Buffers.Binary;
 
 namespace Arrowgene.DJMaxOnline.Server;
 
@@ -7,11 +9,13 @@ public class PacketFactory
 {
     private static readonly ILogger Logger = LogProvider.Logger(typeof(PacketFactory));
 
-    private const int PacketHeaderSize = 5;
-    private const int PacketIdSize = 2;
+    private const int PacketHeaderSize = DjMaxPacketBuilder.HeaderSize;
+    private const int PacketIdSize = DjMaxPacketBuilder.PacketIdSize;
 
     private readonly IBuffer _buffer;
     private bool _readPacketId;
+    private bool _readDynamicHeader;
+    private byte[]? _dynamicHeader;
     private int _dataSize;
     private DjMaxCrypto? _crypto;
     private PacketMeta _packetMeta;
@@ -19,9 +23,12 @@ public class PacketFactory
     public PacketFactory()
     {
         _readPacketId = false;
+        _readDynamicHeader = false;
+        _dynamicHeader = null;
         _dataSize = 0;
         _buffer = new StreamBuffer();
         _crypto = null;
+        _packetMeta = null!;
     }
 
     public void InitCrypto(DjMaxCrypto crypto)
@@ -29,11 +36,15 @@ public class PacketFactory
         _crypto = crypto;
     }
 
+    public int BufferedByteCount => _buffer.Size - _buffer.Position;
+
+    public bool HasPendingPacket => _readPacketId || BufferedByteCount != 0;
+
     public byte[] Write(Packet packet)
     {
         byte[] packetData = packet.GetDataCopy();
 
-        if (_crypto != null)
+        if (_crypto != null && packet.Header != null)
         {
             Span<byte> packetDataView = packetData;
             _crypto.Encrypt(ref packetDataView);
@@ -49,7 +60,7 @@ public class PacketFactory
 
         buffer.WriteBytes(packetData);
         byte[] b = buffer.GetAllBytes();
-        if (b.Length != packet.Meta.Size)
+        if (!packet.Meta.IsDynamicSize && b.Length != packet.Meta.Size)
         {
             Logger.Error(
                 $"Packet Size mismatch. Expected: {packet.Meta.Size}, actual: {b.Length}.{Environment.NewLine}" +
@@ -95,52 +106,71 @@ public class PacketFactory
 
             if (!PacketMeta.TryGet(packetId, out _packetMeta))
             {
-                // TODO err
-                Logger.Error($"PacketMeta not defined for packetId: {packetId}(0x{packetIdNum:X})");
+                string reverseEngineeringContext =
+                    ReceivePacketCatalog.TryGet(packetId, out ReceivePacketDefinition receive)
+                        ? $" sub_42FB20 dispatches it to 0x{receive.HandlerAddress:X}, " +
+                          "but its wire framing is still unresolved."
+                        : string.Empty;
+                throw new InvalidDataException(
+                    $"PacketMeta not defined for packetId: {packetId}(0x{packetIdNum:X})." +
+                    reverseEngineeringContext);
             }
 
-            _dataSize = _packetMeta.Size - PacketIdSize;
+            if (_packetMeta.IsDynamicSize)
+            {
+                _dataSize = PacketHeaderSize;
+                _readDynamicHeader = true;
+            }
+            else
+            {
+                _dataSize = _packetMeta.Size - PacketIdSize;
+                _readDynamicHeader = false;
+            }
             _readPacketId = true;
         }
 
-        if (_readPacketId && _buffer.Size - _buffer.Position >= _dataSize)
+        if (_readPacketId && _readDynamicHeader &&
+            _buffer.Size - _buffer.Position >= PacketHeaderSize)
         {
-            byte[]? header = null;
-            if (_dataSize >= PacketHeaderSize)
+            _dynamicHeader = _buffer.ReadBytes(PacketHeaderSize);
+            uint totalWireSize = BinaryPrimitives.ReadUInt32LittleEndian(_dynamicHeader.AsSpan(1));
+            if (totalWireSize < PacketIdSize + PacketHeaderSize)
             {
-                // TODO revise some small packets might not have a header (pingTest)
-                // however does it impy all other packets have 5 bytes of header?
+                throw new InvalidDataException(
+                    $"Invalid dynamic packet size {totalWireSize} for {_packetMeta.Id}");
+            }
+
+            _dataSize = checked((int)totalWireSize - PacketIdSize - PacketHeaderSize);
+            _readDynamicHeader = false;
+        }
+
+        if (_readPacketId && !_readDynamicHeader &&
+            _buffer.Size - _buffer.Position >= _dataSize)
+        {
+            byte[]? header;
+            if (_dynamicHeader != null)
+            {
+                header = _dynamicHeader;
+                _dynamicHeader = null;
+            }
+            else if (_dataSize >= PacketHeaderSize)
+            {
                 header = _buffer.ReadBytes(PacketHeaderSize);
                 _dataSize -= PacketHeaderSize;
+            }
+            else
+            {
+                header = null;
             }
 
             byte[] packetData = _buffer.ReadBytes(_dataSize);
             byte[] encrypted = new byte[packetData.Length];
             packetData.CopyTo(encrypted, 0);
-            if (_crypto != null)
+            if (_crypto != null && header != null)
             {
                 Span<byte> packetDataView = packetData;
                 _crypto.Decrypt(ref packetDataView);
 
-                if (_packetMeta.Id == PacketId.AuthenticateInSndAccReq)
-                {
-                    IBuffer b = new StreamBuffer(packetData);
-                    b.SetPositionStart();
-                    byte[] user = b.ReadBytes(21);
-                    byte[] pw = b.ReadBytes(11);
-                    byte[] mtSeed = b.ReadBytes(32);
-                    uint crc32 = Crc32.GetHash(mtSeed);
-                    byte[] crc = BitConverter.GetBytes(crc32);
-                    
-                    // TODO test recovery of User / Password
-                    for (int i = 0; i < user.Length; i++)
-                    {
-                        user[i] = (byte)(user[i] - crc[i % crc.Length]);
-                        user[i] = (byte)~user[i];
-                    }
-
-                    // Console.WriteLine(Util.HexDump(user));
-                }
             }
 
             Packet packet = new Packet(_packetMeta, packetData);

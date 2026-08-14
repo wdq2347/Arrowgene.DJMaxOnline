@@ -24,22 +24,26 @@ public enum PacketId : ushort
     //UpdateRoomInfo = 0x00, not a packet
     //Report = 0x00, // what is this? sub_438FD0
 
-    Test00 = 0x6f, // delete for testing // FIXED 70
+    Test00 = 0x6f, // client's end-of-song StageResultInf (sub_437460), FIXED 59
     ProbeObfuscated = 0xF0, // FIXED  144 
     sub_434390 = 0x83, //0xD 
     sub_434450 = 0x85, //0xD
     sub_434510 = 0x87, //0xD
     sub_434620 = 0x8A, //0xB
     sub_434B40 = 0xFD, //0xD
-    sub_435F20 = 0x53, //0xC
-    sub_436120 = 0xA3, //0xB
-    sub_4362D0 = 0x56, //0xC
+    SlotControlReq = 0x53, // fixed 12; host toggles an empty room slot
+    OnSlotControlAck = 0x54, // fixed 13; slot index and enabled state
+    sub_436120 = 0xA3, // Korean bare 3-byte lobby/invite transition request
+    sub_4362D0 = 0x56, // Korean 4-byte peer-state request
     sub_437370 = 0x72, //0x103
     sub_437900 = 0x23, //0xF
-    sub_432210 = 0x12C, //0xB
+    UbsAccountAuthenticationReq = 0x12C, // fixed 11; shop-entry credit authentication
     sub_4323D0 = 0x12F, //0x26
     OnUpdateJoinerInfoInf = 0x51, //FIXED 135
-    ConnectReq = 0x0A, // SERVER:47, client:23 (CLIENT VERSION)
+    OnSlotControlInf = 0x55, // sub_436310 forwards the packet unchanged
+    ConnectReq = 0x0A, // JP client sends this FIXED 15 bytes (China was 23)
+    NetmarbleAuthenticateReq = 0x0D, // dynamic launcher-ticket auth when ConnectFromNM=1
+    JpConnectConfirmReq = 0x0F, // 60-byte launcher account/ticket + OnConnectAck seed
     OnConnectAck = 0x09, //0x2F
     AuthenticateInSndAccReq = 0x11, //FIXED 67
     AuthenticateInSndeKeyAck = 0x13, //NOT CAPTURED
@@ -47,9 +51,9 @@ public enum PacketId : ushort
     OnAuthenticateInSndeKeyReq = 0x12, //NOT CAPTURED
     OnAuthenticateInSndrPwdReq = 0x14, //NOT CAPTURED
     AuthenticateInSndrPwdAck = 0x15,  // NOT CAPTURED
-    OnUbsAccountAuthenResAck = 0x12D, // ?? 
-    OnUbsAwardInfoInf = 0x12E, //176
-    OnUbsAwardAuthenAck = 0x130, // ??
+    OnUbsAccountAuthenResAck = 0x12D, // fixed 8; registered but ignored by this client
+    OnUbsAwardInfoInf = 0x12E, // not registered or dispatched by this client
+    OnUbsAwardAuthenAck = 0x130, // not registered or dispatched by this client
     KeepAuthenticateInReq = 0x17, // FIXED 15
     OnKeepAuthenticateInAck = 0x16, // FIXED 16
     LogInReq = 0x1B, //FIXED 53
@@ -57,8 +61,8 @@ public enum PacketId : ushort
     OnInventoryInfoInf = 0x44, // not captured
     OnMessengerInfoInf = 0x45, // not captured
     OnLogInAck = 0x1A, // FIXED 100
-    LogOutReq = 0x19, //FIXED 13
-    OnLogOutAck = 0x18, // FIXED 13
+    LogOutReq = 0x19, // fixed 5; return to server list
+    OnLogOutAck = 0x18, // fixed 5; u16 status
     OnChannelInfoInf = 0x0B, // DYNAMIC
     OnPeerCountInf = 0x0C, //DYNAMIC 
     OnDisconnectPeerInf = 0x08, // not captured
@@ -69,22 +73,37 @@ public enum PacketId : ushort
     UserInfoReq = 0x1D, //FIXED 15
     OnUserInfoAck = 0x1F, //FIXED 892
     OnUserInfoResNotFound = 0x1E, // not captured
-    OnBigNewsInf = 0x97,// not captured
-    OnChatInf = 0x39, // DYNAMIC game sends 0x38.
-    OnWChatInf = 0x37, //DYNAMIC. Follows same rules as above, not captured. 
-    OnCourseListInf = 0x82, //??
+    OnBigNewsInf = 0x97, // server -> client, fixed 357-byte title/body announcement
+    // Chat flood control, fixed 4: one state byte at raw+3 (sub_4327E0). 0 warns the user
+    // they are spamming, 1 disables their chat box, 2 re-enables it.
+    OnChatControlInf = 0x9A,
+    WChatReq = 0x35, // client -> server whisper request
+    OnWChatInf = 0x36, // server -> client whisper result/display
+    // Korean chat ids are shifted from China. Observed: client sends chat on 0x37
+    // (text at packet+7). The client displays chat/whisper via 0x38 (sub_4321D0,
+    // type byte @+7: 0/1 normal, 6/7 whisper-with-sender). 0x39 is room-grid-add.
+    ChatInf = 0x37, // client -> server chat send (text @packet+7)
+    OnChatInf = 0x38, // server -> client chat echo (len@3, type@7, text@8); sub_4321D0
+    OnRoomInfoInf = 0x39, // server -> client add room to lobby grid (48B); sub_433870
+    OnCourseListInf = 0x82, // dynamic: sequence of ushort course IDs
     OnCourseRankAck = 0x84, //??
     OnChangeCourseAck = 0x86, //??
     OnContinueCourseAck = 0x88, //??
     OnPostCourseItemReq = 0x89, // not captured
     OnAwardItemInf = 0x8C, // not captured
-    OnCipherCommandInf = 0x10E, //admin command based on csv? is this even used? 
+    OnCipherCommandInf = 0x10E, // encrypted payload appended to dated cc-YYMMDD.csv
+    // NOT a "server command" - sub_432830 word-filters the text and hands the packet to
+    // the scene, whose dispatcher (e.g. sub_45EFCC case 251) routes it to sub_48BD17, the
+    // DJ메신저 conversation-window append. Dynamic; size@3, user id@7, user id@11, text@15.
+    OnMsgChatInf = 0xFB,
     OnEnvironmentInf = 0xFC, //FIXED VERY LARGE.
     OnSystemInfoAck = 0xFE, //FIXED 69
     OnWaiterInfoUpdateInf = 0x3C, // FIXED 76
     OnWaiterInfoEraseInf = 0x3D, // FIXED 17
-    OnRoomInfoUpdateInf = 0x3A, // FIXED 51
-    OnRoomInfoEraseInf = 0x3B,// FIXED 13 
+    OnRoomInfoUpdateInf = 0x3A, // fixed 5; REMOVES a room from the grid (roomIndex@3)
+    // NOTE: China's OnRoomInfoEraseInf (0x3B) is gone — 59 is absent from the Korean
+    // receive table sub_42F440, so the client cannot receive it. Removing a room from
+    // the grid is OnRoomInfoUpdateInf (0x3A).
     UserIdInfoReq = 0x21, //DYNAMIC
     OnUserIdInfoAck = 0x22, // DYNAMIC
     OnUserIdInfoInf = 0x20, // DYNAMIC
@@ -92,9 +111,9 @@ public enum PacketId : ushort
     OnJoinerListEnt = 0x41, // not captured
     OnJoinerListEnd = 0x42, // not captured
     CreateRoomReq = 0x4C, // fixed 59
-    OnCreateRoomAck = 0x4D, // fixed 198
+    OnCreateRoomAck = 0x4D, // fixed 52
     JoinRoomReq = 0x46, // fixed 25
-    OnJoinRoomAck = 0x47, // fixed 12
+    OnJoinRoomAck = 0x47, // fixed 15
     OnPostJoinRoomInf = 0x48,// not captured
     InviteRejectReq = 0xA6, // fixed 12
     OnInviteRejectAck = 0xA7, // fixed 12
@@ -104,65 +123,70 @@ public enum PacketId : ushort
     QuickInviteReq = 0xA0, // not captured
     RoomChangeInfoReq = 0x9C, //FIXED 50
     OnRoomChangeInfoAck = 0x9D, //FIXED 51
-    TeamControlReq = 0x58, // FIXED 12
-    OnTeamControlInf = 0x59, //FIXED 13
-    OnGameTypeInf = 0x5B,//FIXED 12
-    ReadyReq = 0x5D,  // FIXED 11
-    OnReadyInf = 0x5E, // FIXED 18
+    TeamControlReq = 0x58, // Korean fixed 4: control + team
+    OnTeamControlInf = 0x59, // Korean fixed 5: control + slot + team
+    OnGameTypeInf = 0x5B, // Korean fixed 4: control + game type
+    ReadyReq = 0x5D,  // Korean fixed 3; bare ready toggle signal
+    OnReadyInf = 0x5E, // FIXED 10
     StartReq = 0x5F, // not captured
     OnStartInf = 0x60, // Fixed 14
     OnJoinEventInf = 0x61, // GO BACK TO THIS.
     OnEventInfoInf = 0x63, // not captured
     PlayStartReq = 0x64, // Fixed 11
     OnPlayStartInf = 0x65, // Fixed 11
-    PlaySkipReq = 0x67, // FIXED 11
-    OnPlaySkipInf = 0x68,//FIXED 11
+    PlaySkipReq = 0x67, // fixed 3; bare client signal
+    OnPlaySkipInf = 0x68, // unregistered; client fallback framing is exactly 3 bytes
     PlayOverReq = 0x6A, // not captured
     OnPlayOverInf = 0x6B, // not captured
-    PlayStateInf = 0x6C, // FIXED 30
-    OnPlayStateInf = 0x6D,// FIXED 23
+    PlayStateInf = 0x6C, // Korean: 22 bytes (8-byte wrapper + 11-byte state)
+    OnPlayStateInf = 0x6D,// Korean: 15 bytes (slot + 11-byte state)
     OnCheckDataReq = 0x71, //FIXED 15
     OnLoadCompleteInf = 0x7C, //FIXED 12
     StageResultInf = 0x49, // not captured, Maybe wrong ID.
     OnStageResultExInf = 0x70, //FIXED 51
-    LeaveRoomReq = 0x73, // FIXED 11
-    OnLeaveRoomAck = 0x74, // FIXED 14
+    LeaveRoomReq = 0x73, // fixed 3; bare client signal
+    OnLeaveRoomAck = 0x74, // fixed 4; one-byte result
     ChangeDiscReq = 0x76, // FIXED 17
     OnChangeDiscInf = 0x77,//FIXED 17
     OnAwardInfoInf = 0x78, // not captured
     OnGameInfoInf = 0x7A, //Very Large Fixed.
-    UpdateUserAccountNickReq = 0x30,  // not captured
-    OnUpdateUserAccountNickAck = 0x31, // not captured
-    UpdateUserProfileReq = 0x32,  // not captured
-    OnUpdateUserProfileAck = 0x33, // not captured
-    OnUpdateUserIconInf = 0x24, // not captured
+    // Korean ids, one BELOW the China ones (reversed from the client's senders and their
+    // pending-flag acks: sub_4358D0/sub_435940 nickname, sub_435990/sub_4359F0 profile).
+    // 47 and 49 are absent from the client's receive table sub_42F440, which is what marks
+    // them as request ids; 48 and 50 are the acks (5 bytes each).
+    UpdateUserAccountNickReq = 0x2F, // fixed 28; raw+3 25-byte nickname
+    OnUpdateUserAccountNickAck = 0x30, // fixed 5; raw+3 result
+    UpdateUserProfileReq = 0x31, // fixed 10; byte@3, u16@4, u32@6 (sent +1)
+    OnUpdateUserProfileAck = 0x32, // fixed 5; raw+3 result
+    OnReserved34Inf = 0x34, // fixed 4; dispatched, but all discovered scenes ignore it
+    OnUpdateUserIconInf = 0x24, // fixed 13; sub_437B20
     OnUpdateUserPropertyInf = 0x25, //Fixed 73
-    OnUpdateUserPropertyRecordInf = 0x28, // not captured
-    OnUpdateUserPropertyMiscInf = 0x29,//FIXED?? 49
-    OnUpdateUserPropertyLevelInf = 0x26, //FIXED 15
-    OnUpdateUserPropertyMoneyInf = 0x27, //FIXED 15
-    OnUpdateUserInventoryDefaultItemInf = 0x2A,  // FIXED 199
-    OnUpdateUserInventoryEventItemInf = 0x2B, // not captured
-    OnUpdateUserInventoryShopItemInf = 0x2C, // not captured
-    OnUpdateUserInventoryMountItemInf = 0x2D, // not captured
-    OnUpdateUserInventoryPresentItemInf = 0x2E, // not captured
-    GetItemReq = 0xB4, //FIXED 11
-    OnCrItemInf = 0xB3, //FIXED 11
-    OnGetItemFail = 0xB5, // not captured
-    OnGetItemAck = 0xB6, //FIXED 15
-    ItemLevelUpReq = 0xB7,  // FIXED 11
-    OnItemLevelUpFail = 0xB8, // not captured
-    OnItemLevelUpAck = 0xB9, //FIXED 14
-    UseItemReq = 0xBA, // not captured
-    OnUseItemFail = 0xBB,// not captured
-    OnUseItemAck = 0xBC, // not captured
+    OnUpdateUserPropertyRecordInf = 0x28, // fixed 21; sub_437D60
+    OnUpdateUserPropertyMiscInf = 0x29, // fixed 49; sub_437E30
+    OnUpdateUserPropertyLevelInf = 0x26, // fixed 17; sub_437EE0
+    OnUpdateUserPropertyMoneyInf = 0x27, // fixed 13; sub_437FC0
+    OnUpdateUserInventoryDefaultItemInf = 0x2A, // fixed 199; sub_438060
+    OnUpdateUserInventoryEventItemInf = 0x2B, // fixed 135; sub_4380F0
+    OnUpdateUserInventoryShopItemInf = 0x2C, // fixed 247; sub_438180
+    OnUpdateUserInventoryMountItemInf = 0x2D, // fixed 71; sub_438210
+    OnUpdateUserAccountClassInf = 0x2E, // fixed 11; userId@3, accountClass@7
+    OnCrItemInf = 0xB3, // Korean fixed 3; bare room-wide create-item signal
+    GetItemReq = 0xB4, // Korean fixed 3; bare pickup request
+    OnGetItemFail = 0xB5, // Korean fixed 3
+    OnGetItemAck = 0xB6, // Korean fixed 7; slot + itemId + level
+    ItemLevelUpReq = 0xB7, // Korean fixed 3; bare level-up request
+    OnItemLevelUpFail = 0xB8, // Korean fixed 3
+    OnItemLevelUpAck = 0xB9, // Korean fixed 6; slot + queueIndex + level
+    UseItemReq = 0xBA, // Korean fixed 4; target slot
+    OnUseItemFail = 0xBB, // Korean fixed 3
+    OnUseItemAck = 0xBC, // Korean fixed 16; source/target/effect parameters
     OnGoodLuckInf = 0xBD, // not captured
     OnGoodLuckListInf = 0xBE, // not captured
     OnMissionStandItemInf = 0xC0, //fixed 22
     UseEffectorInf = 0xC3,  //fixed 35
-    UseEffectorSetInf = 0xC5, //fixed 19
+    UseEffectorSetInf = 0xC5, // Korean fixed 11; four signed 16-bit fields
     OnUseEffectorInf = 0xC4, //fixed 36
-    OnUseEffectorSetInf = 0xC6, // not captured
+    OnUseEffectorSetInf = 0xC6, // Korean fixed 12; request fields + player slot
     UseMountItemInf = 0xC8, // not captured
     OnUseMountItemInf = 0xC9, // not captured
     OnStartParameterInf = 0xCA, // not captured
@@ -178,16 +202,23 @@ public enum PacketId : ushort
     OnExpiredMountItemInf = 0xE4, // not captured
     OnExpiredShopItemInf = 0xE5, // not captured
     OnAlertCreditInf = 0xE6, //DYNAMIC
-    OnMsgNotifyInf = 0xF1, //Fixed 17
-    MsgRegisterUserReq = 0xF2, // not captured
-    OnMsgRegisterUserAck = 0xF3, // not captured
-    OnMsgRegUserInf = 0xF4, // not captured
-    OnMsgBlkUserInf = 0xF5, // not captured
-    OnMsgGroupInf = 0xF6, // not captured
+    OnMsgNotifyInf = 0xF1, // fixed 9; userId@3, status@7
+    MsgRegisterUserReq = 0xF2, // fixed 36; nickname/group/user/operation
+    OnMsgRegisterUserAck = 0xF3, // fixed 5; result u16@3 (194 succeeds)
+    OnMsgRegUserInf = 0xF4, // fixed 483; 60 eight-byte contacts
+    OnMsgBlkUserInf = 0xF5, // fixed 243; 60 four-byte user ids
+    OnMsgGroupInf = 0xF6, // fixed 233; 10 23-byte group names
+    // Send-only: 250 is absent from the client's receive table sub_42F440, so the server
+    // has to translate it into OnMsgChatInf (0xFB) for the recipient. Built by sub_431FC0
+    // as size@3 = 15+strlen(text), senderId@7, targetId@11, text@15 (no terminator).
+    MsgChatReq = 0xFA,
     PurchaseItemReq = 0xDD,  // not captured
     OnPurchaseItemAck = 0xDE, // not captured
     ResaleItemReq = 0xDF, // not captured
     OnResaleItemAck = 0xE0, // not captured.
-    OnUpdateUserAccountClassInf = 0x2F,  // seems fixed 239, not sure what this does though
+    // NOTE: China's OnUpdateUserAccountClassInf (0x2F) is gone. 47 is not in the Korean
+    // receive table sub_42F440 — the client cannot receive it — and 0x2F is the Korean
+    // UpdateUserAccountNickReq. The account class reaches the client through the login
+    // block (+129) and the waiter record (+67) instead.
     VerifyCodeInf = 0xE7, //fixed 35
 }

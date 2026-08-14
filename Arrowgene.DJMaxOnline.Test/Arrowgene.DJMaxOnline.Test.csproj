@@ -23,6 +23,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Arrowgene.DJMaxOnline.Server\Arrowgene.DJMaxOnline.Server.csproj" />
+      <ProjectReference Include="..\Arrowgene.DJMaxOnline.Updater\Arrowgene.DJMaxOnline.Updater.csproj" />
     </ItemGroup>
 
 </Project>

@@ -22,6 +22,11 @@ public class Packet
 
     public string ToLog()
     {
+        if (Id is PacketId.JpConnectConfirmReq or PacketId.NetmarbleAuthenticateReq)
+        {
+            return $"{Meta.ToLog()}{Environment.NewLine}" +
+                   "<launcher authentication payload redacted>";
+        }
         return $"{Meta.ToLog()}" +
                Environment.NewLine +
                $"{(Header != null ? "Header:    " + BitConverter.ToString(Header).Replace("-", " ") + Environment.NewLine : "")}" +

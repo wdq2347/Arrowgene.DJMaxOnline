@@ -3,3 +3,19 @@ bin
 obj
 *.sln.DotSettings.user
 log.txt
+.claude
+/patterns
+/data
+/custom
+
+/patch
+/tools
+.mcp.json
+/discord-bot
+/songs
+
+# Pak key tables. These come out of a client and are never redistributed.
+*.key
+xipkeys/
+xipKeys/
+

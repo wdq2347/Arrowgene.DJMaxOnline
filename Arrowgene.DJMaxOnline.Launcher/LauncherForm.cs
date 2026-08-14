@@ -1,0 +1,973 @@
+using System.Diagnostics;
+using System.Drawing.Drawing2D;
+using System.Net;
+using Arrowgene.DJMaxOnline.Updater;
+
+namespace Arrowgene.DJMaxOnline.Launcher;
+
+/// <summary>
+/// The launcher: a flat dark panel with an account card, a news card, and an updater that
+/// checks the configured site's checksum list before letting the client start.
+/// Everything is owner-drawn with GDI+, so there are no assets to ship alongside it.
+///
+/// The login flow underneath is unchanged - same fields, same config file, same ticket
+/// handshake.
+/// </summary>
+internal sealed class LauncherForm : Form
+{
+    private const int TitleBarHeight = 38;
+
+    private static readonly Rectangle AccountCard = new(16, 52, 320, 260);
+    private static readonly Rectangle NewsCard = new(348, 52, 316, 260);
+
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(10) };
+
+    private readonly string _configPath = LauncherConfig.DefaultPath;
+
+    /// <summary>
+    /// The config exactly as it was loaded. Saving mutates THIS and writes it back, rather
+    /// than building a fresh one from a hand-written field list - that list silently reset
+    /// every setting missing from it, so a hand-edited loginUrl was erased on exit.
+    /// </summary>
+    private readonly LauncherConfig _config;
+    private readonly string _loginUrl;
+    private readonly string _updateSource;
+    private readonly string _manifestName;
+    private readonly string _newsFileName;
+
+    /// <summary>Why the configured update site is unusable, or null when it is fine.</summary>
+    private readonly string? _updateSourceError;
+    private readonly string _localeEmulator;
+    private readonly string _localeEmulatorArgs;
+    private readonly int _localeCodePage;
+    private readonly string _localeName;
+    private readonly string _localeProfile;
+
+    private readonly ModernField _account = new();
+    private readonly ModernField _password = new(password: true);
+    private readonly ModernField _gamePath = new();
+    private readonly ModernCheck _saveCredentials = new();
+    private readonly ModernCheck _showPassword = new();
+    private readonly ModernButton _browseButton = new(ButtonKind.Neutral);
+    private readonly ModernButton _updateButton = new(ButtonKind.Ghost);
+    private readonly ModernButton _loginButton = new(ButtonKind.Accent);
+    private readonly ModernButton _cancelButton = new(ButtonKind.Ghost);
+    private readonly ModernProgress _overallProgress = new();
+    private readonly ModernProgress _fileProgress = new();
+    private readonly NewsPanel _news = new();
+    private readonly Label _statusLabel = new();
+    private readonly System.Windows.Forms.Timer _pulse = new();
+
+    private CancellationTokenSource? _work;
+    private UpdatePlan? _pending;
+    private bool _busy;
+
+    public LauncherForm(LauncherStartupOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        LauncherConfig config;
+        string? configError = null;
+        try
+        {
+            config = LauncherConfig.Load(_configPath);
+        }
+        catch (Exception ex)
+        {
+            config = new LauncherConfig();
+            configError = $"Could not read {LauncherConfig.FileName}: {ex.Message}";
+        }
+
+        _config = config;
+        _loginUrl = !string.IsNullOrWhiteSpace(options.LoginUrl)
+            ? options.LoginUrl.Trim()
+            : config.LoginUrl.Trim();
+        _manifestName = config.UpdateManifest;
+        _localeEmulator = config.LocaleEmulator;
+        _localeEmulatorArgs = config.LocaleEmulatorArgs;
+        _localeCodePage = config.LocaleCodePage;
+        _localeName = config.LocaleName;
+        _localeProfile = config.LocaleProfile;
+        _newsFileName = config.UpdateNews;
+        // Web only: no local-folder fallback. Updates come from the server so every
+        // player checks the same published hashes against the same published files.
+        _updateSource = !string.IsNullOrWhiteSpace(options.UpdateSource)
+            ? options.UpdateSource.Trim()
+            : config.UpdateUrl.Trim();
+        _updateSourceError = LauncherConfig.ValidateUpdateSource(_updateSource);
+
+        Text = "DJMAX Online Launcher";
+        StartPosition = FormStartPosition.CenterScreen;
+        FormBorderStyle = FormBorderStyle.None;
+        MaximizeBox = false;   // HTCAPTION would otherwise maximise on double-click
+        // The chrome is hand-painted at fixed pixel coordinates, so auto-scaling would
+        // move the controls out from under the cards drawn behind them.
+        AutoScaleMode = AutoScaleMode.None;
+        ClientSize = new Size(680, 428);
+        BackColor = ModernTheme.Ground;
+        ForeColor = ModernTheme.Text;
+        Font = ModernTheme.Ui();
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
+                 ControlStyles.OptimizedDoubleBuffer, true);
+        KeyPreview = true;
+
+        BuildLayout();
+
+        _account.Box.Text = options.AccountId ?? config.AccountId;
+        _password.Box.Text = config.Password;
+        _saveCredentials.Checked = config.SaveCredentials;
+        _gamePath.Box.Text =
+            ResolveInitialGamePath(options.GamePath, config.GamePath) ?? string.Empty;
+        SetStatus(configError ?? "Ready.",
+            configError == null ? ModernTheme.TextDim : ModernTheme.Alert);
+
+        AcceptButton = _loginButton;
+        CancelButton = _cancelButton;
+        // Borderless forms swallow Escape unless the form itself watches for it.
+        KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Escape && !_busy)
+            {
+                Close();
+            }
+        };
+
+        _pulse.Interval = 33;
+        _pulse.Tick += (_, _) =>
+        {
+            _overallProgress.Step();
+            _fileProgress.Step();
+        };
+        _pulse.Start();
+
+        Shown += async (_, _) =>
+        {
+            if (_account.Box.TextLength == 0)
+            {
+                _account.Box.Focus();
+            }
+            else if (_password.Box.TextLength == 0)
+            {
+                _password.Box.Focus();
+            }
+            else
+            {
+                _loginButton.Focus();
+            }
+
+            // News first and unawaited: the update check hashes the whole install, and
+            // the card should not sit on placeholder text for the length of that.
+            _ = RefreshNewsAsync();
+            await CheckForUpdatesAsync(quiet: true);
+        };
+        FormClosing += (_, _) =>
+        {
+            _pulse.Stop();
+            _work?.Cancel();
+            SaveCurrentConfig(showError: false);
+        };
+    }
+
+    // ------------------------------------------------------------------- layout
+
+    private void BuildLayout()
+    {
+        _password.Box.MaxLength = LoginClient.MaximumPasswordLength;
+        _account.Box.MaxLength = LoginClient.MaximumAccountLength;
+
+        _browseButton.Text = "Browse";
+        _browseButton.Font = ModernTheme.Ui(8.5F);
+        _browseButton.BackColor = ModernTheme.Card;   // this one sits inside a card
+        _browseButton.Click += BrowseForGame;
+
+        _showPassword.Text = "Show password";
+        _showPassword.CheckedChanged += (_, _) =>
+            _password.Box.UseSystemPasswordChar = !_showPassword.Checked;
+
+        _saveCredentials.Text = "Remember me (saved as plain text)";
+
+        _updateButton.Text = "Check for Updates";
+        _updateButton.Font = ModernTheme.Ui(8.5F, FontStyle.Bold);
+        _updateButton.Click += UpdateButtonClickAsync;
+
+        _loginButton.Text = "Start Game";
+        _loginButton.Click += LoginAndLaunchAsync;
+
+        _cancelButton.Text = "Exit";
+        _cancelButton.Click += (_, _) => Close();
+
+        _statusLabel.AutoSize = false;
+        // Opaque for the same reason the buttons are: the text changes constantly, and a
+        // transparent label leaves the previous message behind it.
+        _statusLabel.BackColor = ModernTheme.Ground;
+        _statusLabel.Font = ModernTheme.Ui(8.5F);
+        _statusLabel.ForeColor = ModernTheme.TextDim;
+        _statusLabel.AutoEllipsis = true;
+        _statusLabel.TextAlign = ContentAlignment.MiddleLeft;
+
+        _fileProgress.Fill = ModernTheme.AccentDim;
+        _news.SetEntries(LoadNews());
+
+        Controls.AddRange(
+        [
+            _account, _password, _gamePath, _showPassword, _saveCredentials,
+            _browseButton, _updateButton, _loginButton, _cancelButton, _statusLabel,
+            _overallProgress, _fileProgress, _news
+        ]);
+
+        PositionControls();
+    }
+
+    /// <summary>
+    /// Absolute placement rather than nested layout panels: the panels paint their own
+    /// backgrounds and would punch opaque rectangles through the drawn cards.
+    /// </summary>
+    private void PositionControls()
+    {
+        // Field captions are drawn in OnPaint above each well, not hosted as labels.
+        const int left = 32;
+        const int width = 288;
+
+        _account.SetBounds(left, 110, width, 30);
+        _password.SetBounds(left, 166, width, 30);
+        _showPassword.SetBounds(left, 202, 200, 18);
+        _gamePath.SetBounds(left, 244, width - 98, 30);
+        _browseButton.SetBounds(left + width - 90, 244, 90, 30);
+        _saveCredentials.SetBounds(left, 282, width, 18);
+
+        _news.SetBounds(NewsCard.X + 16, NewsCard.Y + 40, NewsCard.Width - 32,
+            NewsCard.Height - 56);
+
+        _updateButton.SetBounds(16, 328, 176, 36);
+        _loginButton.SetBounds(ClientSize.Width - 148, 328, 132, 36);
+        _cancelButton.SetBounds(ClientSize.Width - 148 - 104, 328, 96, 36);
+
+        _statusLabel.SetBounds(16, 374, ClientSize.Width - 130, 18);
+        _overallProgress.SetBounds(16, 398, ClientSize.Width - 32, 6);
+        _fileProgress.SetBounds(16, 408, ClientSize.Width - 32, 6);
+    }
+
+    // -------------------------------------------------------------------- paint
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        ModernTheme.Clear(g, ClientRectangle, ModernTheme.Ground);
+        ModernTheme.Smooth(g);
+
+        PaintTitleBar(g);
+        ModernTheme.Surface(g, AccountCard, 10F, ModernTheme.Card, ModernTheme.Line);
+        ModernTheme.Surface(g, NewsCard, 10F, ModernTheme.Card, ModernTheme.Line);
+
+        ModernTheme.SectionTitle(g, "Account", new Point(AccountCard.X + 16, AccountCard.Y + 16));
+        ModernTheme.SectionTitle(g, "News", new Point(NewsCard.X + 16, NewsCard.Y + 16));
+
+        ModernTheme.Label(g, "ID", new Rectangle(32, 88, 288, 18));
+        ModernTheme.Label(g, "Password", new Rectangle(32, 144, 288, 18));
+        ModernTheme.Label(g, "Game", new Rectangle(32, 222, 288, 18));
+
+        PaintVersion(g);
+
+        using Pen frame = new(ModernTheme.Line);
+        g.DrawRectangle(frame, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
+    }
+
+    private void PaintTitleBar(Graphics g)
+    {
+        using (SolidBrush accent = new(ModernTheme.Accent))
+        {
+            g.FillEllipse(accent, 18, TitleBarHeight / 2 - 4, 8, 8);
+        }
+
+        using Font font = ModernTheme.Ui(9F, FontStyle.Bold);
+        TextRenderer.DrawText(g, "DJMAX Online", font,
+            new Rectangle(32, 0, 300, TitleBarHeight), ModernTheme.Text,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+
+        PaintGlyph(g, MinimiseButton, minimise: true);
+        PaintGlyph(g, CloseGlyphButton, minimise: false);
+    }
+
+    private Rectangle MinimiseButton => new(ClientSize.Width - 64, 10, 20, 18);
+    private Rectangle CloseGlyphButton => new(ClientSize.Width - 36, 10, 20, 18);
+
+    private void PaintGlyph(Graphics g, Rectangle area, bool minimise)
+    {
+        bool hot = area.Contains(PointToClient(MousePosition));
+        Color ink = hot ? ModernTheme.Text : ModernTheme.TextFaint;
+        using Pen pen = new(ink, 1.4F) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+
+        float cx = area.X + area.Width / 2F;
+        float cy = area.Y + area.Height / 2F;
+        if (minimise)
+        {
+            g.DrawLine(pen, cx - 5, cy + 3, cx + 5, cy + 3);
+            return;
+        }
+
+        g.DrawLine(pen, cx - 4.5F, cy - 4.5F, cx + 4.5F, cy + 4.5F);
+        g.DrawLine(pen, cx + 4.5F, cy - 4.5F, cx - 4.5F, cy + 4.5F);
+    }
+
+    private void PaintVersion(Graphics g)
+    {
+        using Font font = ModernTheme.Ui(8F);
+        string version = typeof(LauncherForm).Assembly.GetName().Version?.ToString(3) ?? "1.0";
+        TextRenderer.DrawText(g, $"v{version}", font,
+            new Rectangle(ClientSize.Width - 116, 374, 100, 18), ModernTheme.TextFaint,
+            TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
+    }
+
+    // ------------------------------------------------------------------ updates
+
+    private UpdateService CreateUpdateService() =>
+        new(UpdateService.CreateTransport(_updateSource, Http), _manifestName);
+
+    private string? GameDirectory()
+    {
+        string path = _gamePath.Box.Text.Trim();
+        return path.Length == 0 ? null : Path.GetDirectoryName(Path.GetFullPath(path));
+    }
+
+    private async void UpdateButtonClickAsync(object? sender, EventArgs e)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        if (_pending is { UpToDate: false })
+        {
+            await DownloadUpdatesAsync(_pending);
+            return;
+        }
+
+        await CheckForUpdatesAsync(quiet: false);
+    }
+
+    /// <summary>
+    /// Fetches the checksum list and hashes the local files against it. A quiet check is
+    /// the one that runs at start-up: it never pops a dialog, because a missing update
+    /// source is the normal case for someone running purely offline.
+    /// </summary>
+    private async Task CheckForUpdatesAsync(bool quiet)
+    {
+        if (_updateSourceError != null)
+        {
+            // Misconfiguration, not a transient failure - say so plainly rather than
+            // letting it surface later as an obscure download error.
+            SetStatus(_updateSourceError, quiet ? ModernTheme.TextFaint : ModernTheme.Alert);
+            if (!quiet)
+            {
+                ShowError(_updateSourceError);
+            }
+            return;
+        }
+
+        string? gameDirectory = GameDirectory();
+        if (gameDirectory == null || !Directory.Exists(gameDirectory))
+        {
+            if (!quiet)
+            {
+                ShowError("Select DJMax.exe first so the updater knows which folder to patch.");
+            }
+            return;
+        }
+
+        SetBusy(true);
+        _updateButton.Text = "Checking...";
+        _overallProgress.Marquee = true;
+        SetStatus($"Checking for updates from {_updateSource}", ModernTheme.TextDim);
+
+        try
+        {
+            _work = new CancellationTokenSource();
+            UpdateService service = CreateUpdateService();
+            UpdateManifest manifest = await service.FetchManifestAsync(_work.Token);
+            // Hashing every listed file is slow enough to matter; keep it off the UI thread.
+            UpdatePlan plan = await Task.Run(
+                () => UpdateService.Plan(manifest, gameDirectory), _work.Token);
+
+            _pending = plan;
+            if (plan.UpToDate)
+            {
+                _updateButton.Text = "Check for Updates";
+                SetStatus($"Up to date - {plan.Examined} file(s) verified.", ModernTheme.Ok);
+            }
+            else
+            {
+                _updateButton.Kind = ButtonKind.Neutral;
+                _updateButton.Text = $"Download {plan.Actions.Count} file(s)";
+                SetStatus(
+                    $"{plan.Actions.Count} of {plan.Examined} file(s) need updating.",
+                    ModernTheme.Accent);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            SetStatus("Update check cancelled.", ModernTheme.TextDim);
+        }
+        catch (Exception ex)
+        {
+            _updateButton.Text = "Check for Updates";
+            // No manifest at all is the normal offline case, not a failure worth shouting
+            // about on the quiet start-up check.
+            bool missingSource = ex is FileNotFoundException or DirectoryNotFoundException;
+            if (quiet)
+            {
+                SetStatus(
+                    missingSource
+                        ? "No update source configured."
+                        : $"Update check failed: {Describe(ex)}",
+                    ModernTheme.TextFaint);
+            }
+            else
+            {
+                ShowError($"Update check failed: {Describe(ex)}");
+            }
+        }
+        finally
+        {
+            _overallProgress.Marquee = false;
+            _overallProgress.Value = 0F;
+            _overallProgress.Invalidate();
+            SetBusy(false);
+        }
+    }
+
+    private async Task DownloadUpdatesAsync(UpdatePlan plan)
+    {
+        string? gameDirectory = GameDirectory();
+        if (gameDirectory == null)
+        {
+            return;
+        }
+
+        SetBusy(true);
+        _updateButton.Text = "Downloading...";
+        Progress<UpdateProgress> progress = new(report =>
+        {
+            _overallProgress.Value = report.OverallFraction;
+            _overallProgress.Invalidate();
+            _fileProgress.Value = report.FileFraction;
+            _fileProgress.Invalidate();
+            SetStatus(
+                $"[{Math.Min(report.FileIndex + 1, report.FileCount)}/{report.FileCount}] " +
+                report.Path,
+                ModernTheme.TextDim);
+        });
+
+        try
+        {
+            _work = new CancellationTokenSource();
+            UpdateService service = CreateUpdateService();
+            await service.ApplyAsync(plan, gameDirectory, progress, _work.Token);
+
+            // Each file was checksummed as it streamed in, but that only proves the
+            // transfer was clean. Re-fetch the list and re-hash the whole install so the
+            // launcher can say the game matches what the server publishes - which is the
+            // claim that actually matters before letting someone log in.
+            SetStatus("Verifying files...", ModernTheme.TextDim);
+            _overallProgress.Marquee = true;
+            UpdateManifest manifest = await service.FetchManifestAsync(_work.Token);
+            UpdatePlan verified = await Task.Run(
+                () => UpdateService.Plan(manifest, gameDirectory), _work.Token);
+            _overallProgress.Marquee = false;
+
+            _updateButton.Kind = ButtonKind.Ghost;
+            _updateButton.Text = "Check for Updates";
+            _overallProgress.Value = 1F;
+            _fileProgress.Value = 1F;
+
+            if (verified.UpToDate)
+            {
+                _pending = null;
+                SetStatus(
+                    $"Updated {plan.Actions.Count} file(s) - {verified.Examined} verified.",
+                    ModernTheme.Ok);
+            }
+            else
+            {
+                // Something is rewriting these files, or the site changed mid-download.
+                // Leaving the plan in place means the next click retries exactly these.
+                _pending = verified;
+                _updateButton.Kind = ButtonKind.Neutral;
+                _updateButton.Text = $"Retry {verified.Actions.Count} file(s)";
+                SetStatus(
+                    $"{verified.Actions.Count} file(s) still do not match after updating.",
+                    ModernTheme.Alert);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            SetStatus("Download cancelled.", ModernTheme.TextDim);
+        }
+        catch (Exception ex)
+        {
+            _updateButton.Text = $"Download {plan.Actions.Count} file(s)";
+            ShowError($"Update failed: {Describe(ex)}");
+        }
+        finally
+        {
+            _overallProgress.Invalidate();
+            _fileProgress.Invalidate();
+            SetBusy(false);
+        }
+    }
+
+    private static string Describe(Exception ex) => ex switch
+    {
+        FileNotFoundException or DirectoryNotFoundException =>
+            "the update source does not have a checksum list.",
+        HttpRequestException http => $"the update site could not be reached ({http.Message}).",
+        _ => ex.Message
+    };
+
+    // --------------------------------------------------------------------- news
+
+    /// <summary>
+    /// Replaces the placeholder with what the update site publishes, or says plainly that
+    /// the site could not be reached.
+    ///
+    /// The card must never keep showing cheerful stand-in text when the fetch failed:
+    /// "Server online - SEOUL and TOKYO are up" is a claim, and displaying it while the
+    /// server is unreachable tells the player the opposite of the truth. What went wrong
+    /// is the news, so it goes on the card.
+    /// </summary>
+    private async Task RefreshNewsAsync()
+    {
+        if (_updateSourceError != null)
+        {
+            ShowNews(Notice("Update site not configured", _updateSourceError));
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_newsFileName))
+        {
+            ShowNews(Notice("News is switched off",
+                $"No news file is configured. Set updateNews in {LauncherConfig.FileName} " +
+                "to show announcements here."));
+            return;
+        }
+
+        try
+        {
+            IReadOnlyList<NewsItem> items = await NewsFeed.FetchAsync(
+                UpdateService.CreateTransport(_updateSource, Http), _newsFileName);
+
+            ShowNews(items.Count > 0
+                ? [.. items.Select(item =>
+                    new NewsPanel.Entry(item.Headline, item.Date, item.Body))]
+                // The site answered, so it IS up - it just has nothing posted.
+                : Notice("No news posted",
+                    "The server is reachable but has not published any announcements."));
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            // A 404 is still an answer: something is serving, the file is just absent.
+            ShowNews(Notice("No news file",
+                $"The server is reachable but is not serving {_newsFileName}."));
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Could not fetch news from {_updateSource}: {ex}");
+            ShowNews(Notice("Cannot reach the server",
+                $"No answer from {_updateSource}. Is the server online? " +
+                "Check that it is running and that updateUrl points at it."));
+        }
+    }
+
+    /// <summary>Pushes entries onto the card unless the form is already gone.</summary>
+    private void ShowNews(IReadOnlyList<NewsPanel.Entry> entries)
+    {
+        if (!IsDisposed)
+        {
+            _news.SetEntries(entries);
+        }
+    }
+
+    /// <summary>A single-item card - a status message rather than actual news.</summary>
+    private static NewsPanel.Entry[] Notice(string headline, string body) =>
+        [new NewsPanel.Entry(headline, string.Empty, body)];
+
+    /// <summary>
+    /// What the card shows for the moment before the fetch returns.
+    ///
+    /// Deliberately says nothing about the state of the server: it is replaced either way,
+    /// and until then the honest answer is that we do not know yet.
+    /// </summary>
+    private static IReadOnlyList<NewsPanel.Entry> LoadNews() =>
+        Notice("Loading news", "Contacting the server...");
+
+    // ---------------------------------------------------- borderless behaviour
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left)
+        {
+            base.OnMouseDown(e);
+            return;
+        }
+
+        if (CloseGlyphButton.Contains(e.Location))
+        {
+            Close();
+            return;
+        }
+        if (MinimiseButton.Contains(e.Location))
+        {
+            WindowState = FormWindowState.Minimized;
+            return;
+        }
+
+        base.OnMouseDown(e);
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        if (e.Y < TitleBarHeight)
+        {
+            Invalidate(new Rectangle(ClientSize.Width - 80, 0, 80, TitleBarHeight));
+        }
+
+        base.OnMouseMove(e);
+    }
+
+    private const int WmNcHitTest = 0x0084;
+    private const int HtClient = 1;
+    private const int HtCaption = 2;
+
+    /// <summary>
+    /// Reports the caption strip as the window caption, which hands dragging to Windows -
+    /// so snapping, shake and multi-monitor all behave exactly like a normal window,
+    /// without any P/Invoke. The glyphs stay client area so they keep their clicks.
+    /// </summary>
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+        if (m.Msg != WmNcHitTest || m.Result != HtClient)
+        {
+            return;
+        }
+
+        Point point = PointToClient(new Point(m.LParam.ToInt32()));
+        if (point.Y < TitleBarHeight &&
+            !MinimiseButton.Contains(point) &&
+            !CloseGlyphButton.Contains(point))
+        {
+            m.Result = HtCaption;
+        }
+    }
+
+    // --------------------------------------------------------------- behaviour
+
+    private async void LoginAndLaunchAsync(object? sender, EventArgs e)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        string accountId = _account.Box.Text.Trim();
+        string password = _password.Box.Text;
+        string gamePath;
+        try
+        {
+            if (accountId.Length == 0)
+            {
+                throw new InvalidOperationException("Enter an account ID.");
+            }
+            if (password.Length == 0)
+            {
+                throw new InvalidOperationException("Enter a password.");
+            }
+            gamePath = Path.GetFullPath(_gamePath.Box.Text.Trim());
+            if (!File.Exists(gamePath))
+            {
+                throw new FileNotFoundException("DJMax.exe was not found at the selected path.");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+            return;
+        }
+
+        if (_pending is { UpToDate: false } outstanding &&
+            MessageBox.Show(
+                this,
+                $"{outstanding.Actions.Count} file(s) are out of date. Start anyway?",
+                "DJMAX Launcher",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        bool closeAfterLaunch = false;
+        SetBusy(true);
+        _overallProgress.Marquee = true;
+        SetStatus("Authenticating with the server...", ModernTheme.TextDim);
+        try
+        {
+            LoginResponse response = await LoginClient.AuthenticateAsync(
+                Http, _loginUrl, accountId, password);
+            if (!response.Success ||
+                response.Token is not { Length: LoginClient.TokenLength } token)
+            {
+                ShowError(response.Error ?? "Login was rejected.");
+                return;
+            }
+
+            _gamePath.Box.Text = gamePath;
+            SaveCurrentConfig(showError: true);
+            StartGame(gamePath, token, _localeEmulator, _localeEmulatorArgs,
+                _localeCodePage, _localeName, _localeProfile);
+            SetStatus($"Connected. Ticket expires in {response.ExpiresInSeconds}s.",
+                ModernTheme.Ok);
+            closeAfterLaunch = true;
+        }
+        catch (OperationCanceledException)
+        {
+            ShowError("The login server did not respond. Start the DJMAX server first.");
+        }
+        catch (TimeoutException)
+        {
+            ShowError("The login server did not respond. Start the DJMAX server first.");
+        }
+        catch (IOException ex)
+        {
+            ShowError($"Could not contact the DJMAX server: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+        }
+        finally
+        {
+            _overallProgress.Marquee = false;
+            _overallProgress.Invalidate();
+            SetBusy(false);
+        }
+
+        if (closeAfterLaunch)
+        {
+            Close();
+        }
+    }
+
+    private void BrowseForGame(object? sender, EventArgs e)
+    {
+        using OpenFileDialog dialog = new()
+        {
+            Title = "Select DJMax.exe",
+            Filter = "DJMAX executable (DJMax.exe)|DJMax.exe|Executable files (*.exe)|*.exe",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        string current = _gamePath.Box.Text.Trim();
+        if (File.Exists(current))
+        {
+            dialog.InitialDirectory = Path.GetDirectoryName(Path.GetFullPath(current));
+            dialog.FileName = Path.GetFileName(current);
+        }
+        if (dialog.ShowDialog(this) == DialogResult.OK)
+        {
+            _gamePath.Box.Text = dialog.FileName;
+            // A different install means the previous plan no longer describes this folder.
+            _pending = null;
+            _updateButton.Kind = ButtonKind.Ghost;
+            _updateButton.Text = "Check for Updates";
+        }
+    }
+
+    private void SaveCurrentConfig(bool showError)
+    {
+        try
+        {
+            // Only the fields this window actually edits. Everything else - loginUrl,
+            // updateNews, the locale settings - keeps whatever was loaded, so hand-editing
+            // the file survives a launcher run.
+            _config.SaveCredentials = _saveCredentials.Checked;
+            _config.AccountId =
+                _saveCredentials.Checked ? _account.Box.Text.Trim() : string.Empty;
+            _config.Password = _saveCredentials.Checked ? _password.Box.Text : string.Empty;
+            _config.GamePath = _gamePath.Box.Text.Trim();
+            _config.Save(_configPath);
+        }
+        catch (Exception ex) when (!showError)
+        {
+            Debug.WriteLine($"Could not save launcher config: {ex}");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"The game can still launch, but {LauncherConfig.FileName} could not be saved:\n\n" +
+                ex.Message,
+                "DJMAX Launcher",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+    }
+
+    /// <summary>
+    /// Starts the client, optionally through a locale emulator.
+    ///
+    /// The Korean client is a pure ANSI application: it converts its CP949 text with the
+    /// SYSTEM ANSI codepage (GetACP / MultiByteToWideChar), so on a non-Korean Windows the
+    /// Korean strings come out as mojibake. Windows has no way to give a child process a
+    /// different ANSI codepage - the manifest only offers UTF-8 or Legacy - so the only
+    /// per-process fix is to start the game under a tool that hooks those conversions.
+    /// </summary>
+    private static void StartGame(
+        string gamePath, string token, string localeEmulator, string localeEmulatorArgs,
+        int localeCodePage, string localeName, string localeProfile)
+    {
+        // sub_4B0C30 retains the third lpCmdLine argument when ConnectFromNM=0.
+        string[] arguments = ["local", "ticket", token];
+
+        if (string.IsNullOrWhiteSpace(localeEmulator))
+        {
+            ProcessStartInfo direct = new(gamePath)
+            {
+                WorkingDirectory = Path.GetDirectoryName(gamePath)!,
+                UseShellExecute = true
+            };
+            foreach (string argument in arguments)
+            {
+                direct.ArgumentList.Add(argument);
+            }
+            _ = Process.Start(direct) ??
+                throw new InvalidOperationException("DJMax.exe did not start.");
+            return;
+        }
+
+        string emulator = Path.GetFullPath(localeEmulator);
+        if (!File.Exists(emulator))
+        {
+            throw new FileNotFoundException(
+                "The configured locale emulator was not found:" +
+                Environment.NewLine + Environment.NewLine + emulator +
+                Environment.NewLine + Environment.NewLine +
+                $"Clear localeEmulator in {LauncherConfig.FileName} to launch the game " +
+                "directly.");
+        }
+
+        // A {profile} with nothing to put in it would produce "-runas  <game> ...", which
+        // Locale Emulator answers by exiting 0 and starting nothing at all - the least
+        // debuggable failure there is. Say what is missing instead.
+        if (localeEmulatorArgs.Contains("{profile}", StringComparison.Ordinal) &&
+            string.IsNullOrWhiteSpace(localeProfile))
+        {
+            throw new InvalidOperationException(
+                "localeEmulatorArgs uses {profile} but localeProfile is empty." +
+                Environment.NewLine + Environment.NewLine +
+                "Locale Emulator takes the game's arguments from a saved profile, so it " +
+                "needs one to run with. Open LEGUI.exe, create a KOREAN (ko-KR) profile, " +
+                $"and copy its Guid from LEConfig.xml into localeProfile in {LauncherConfig.FileName}.");
+        }
+
+        // The template decides the quoting, because each tool spells its command line
+        // differently - LEProc takes "-runas <guid> <exe> <args>", ntleas takes
+        // "<exe> <args> -cp:949".
+        string commandLine = localeEmulatorArgs
+            .Replace("{profile}", localeProfile.Trim(), StringComparison.Ordinal)
+            .Replace("{game}", Quote(gamePath), StringComparison.Ordinal)
+            .Replace("{args}", string.Join(' ', arguments.Select(Quote)),
+                StringComparison.Ordinal)
+            .Replace("{codepage}", localeCodePage.ToString(
+                System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            .Replace("{locale}", localeName, StringComparison.Ordinal);
+
+        ProcessStartInfo through = new(emulator)
+        {
+            // The emulator launches the game, so the game still has to see its own folder.
+            WorkingDirectory = Path.GetDirectoryName(gamePath)!,
+            Arguments = commandLine,
+            UseShellExecute = true
+        };
+        _ = Process.Start(through) ??
+            throw new InvalidOperationException(
+                $"{Path.GetFileName(emulator)} did not start.");
+    }
+
+    /// <summary>Quotes only when needed, and never doubles an existing pair.</summary>
+    internal static string Quote(string value)
+    {
+        const char quote = '"';
+        if (value.Length != 0 && !value.Contains(' '))
+        {
+            return value;
+        }
+        return quote + value.Trim(quote) + quote;
+    }
+
+    private void SetBusy(bool busy)
+    {
+        _busy = busy;
+        _loginButton.Enabled = !busy;
+        _updateButton.Enabled = !busy;
+        _browseButton.Enabled = !busy;
+        _account.Box.Enabled = !busy;
+        _password.Box.Enabled = !busy;
+        UseWaitCursor = busy;
+        if (!busy)
+        {
+            _fileProgress.Value = 0F;
+            _fileProgress.Invalidate();
+        }
+    }
+
+    private void SetStatus(string text, Color color)
+    {
+        _statusLabel.ForeColor = color;
+        _statusLabel.Text = text;
+    }
+
+    private void ShowError(string message)
+    {
+        SetStatus(message, ModernTheme.Alert);
+        MessageBox.Show(
+            this,
+            message,
+            "DJMAX Launcher",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Error);
+    }
+
+    private static string? ResolveInitialGamePath(string? option, string configured)
+    {
+        string? value = string.IsNullOrWhiteSpace(option)
+            ? string.IsNullOrWhiteSpace(configured) ? FindGameExecutable() : configured
+            : option;
+        return string.IsNullOrWhiteSpace(value) ? null : Path.GetFullPath(value);
+    }
+
+    private static string? FindGameExecutable()
+    {
+        foreach (string start in new[]
+                 {
+                     Directory.GetCurrentDirectory(),
+                     AppContext.BaseDirectory
+                 }.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            for (DirectoryInfo? directory = new(start); directory != null;
+                 directory = directory.Parent)
+            {
+                foreach (string candidate in new[]
+                         {
+                             Path.Combine(directory.FullName, "DJMax.exe"),
+                             Path.Combine(directory.FullName, "client", "DJMax.exe")
+                         })
+                {
+                    if (File.Exists(candidate))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+}
