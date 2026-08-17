@@ -31,6 +31,28 @@ public static class ExperienceCurve
 
     public static uint Required(uint level) =>
         level < Thresholds.Length ? Thresholds[level] : uint.MaxValue;
+
+    /// <summary>
+    /// Consumes completed rungs from a stored progress record. Every EXP payout, including
+    /// a course-clear bonus, must take this path before its state is sent to the client.
+    /// </summary>
+    /// <returns><c>true</c> when one or more levels were gained.</returns>
+    public static bool ApplyLevelUps(LocalPlayerProgress progress)
+    {
+        ArgumentNullException.ThrowIfNull(progress);
+        uint previousLevel = progress.Level;
+        while (progress.Level < MaxLevel)
+        {
+            uint required = Required(progress.Level);
+            if (required == uint.MaxValue || progress.Experience < required)
+            {
+                break;
+            }
+            progress.Experience -= required;
+            progress.Level++;
+        }
+        return progress.Level > previousLevel;
+    }
 }
 
 /// <summary>

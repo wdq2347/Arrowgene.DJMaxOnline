@@ -3278,16 +3278,7 @@ public sealed class LocalLobby
     /// </summary>
     private static void ApplyLevelUps(LocalPlayerProgress progress)
     {
-        while (progress.Level < ExperienceCurve.MaxLevel)
-        {
-            uint required = ExperienceCurve.Required(progress.Level);
-            if (required == uint.MaxValue || progress.Experience < required)
-            {
-                break;
-            }
-            progress.Experience -= required;
-            progress.Level++;
-        }
+        ExperienceCurve.ApplyLevelUps(progress);
     }
 
     public NamedRoomInviteResult InviteByName(Client host, string nickname)
@@ -5141,7 +5132,10 @@ public sealed class LocalLobby
             $"record={update.Wins}/{update.Losses}/{update.Draws}" +
             $"{(update.LeveledUp ? ", LEVEL UP" : string.Empty)}" +
             $"{(update.NewRecord ? ", NEW RECORD" : string.Empty)}.");
-        return new StageAward(reward.Money, update.LeveledUp, update.NewRecord);
+        return new StageAward(reward.Money, update.LeveledUp, update.NewRecord)
+        {
+            Experience = reward.Experience
+        };
     }
 
     /// <summary>Renders the 24-byte effector config as its 4 (index, a, b) triples.</summary>
@@ -5460,7 +5454,13 @@ public sealed class LocalLobby
         TimedInventoryItem? courseItem = null;
         if (passed)
         {
-            GrantCourseRewards(client, course, member.Award.Money);
+            if (GrantCourseRewards(client, course, member.Award.Money,
+                    member.Award.Experience))
+            {
+                // The result record is sent after AdvanceCourse returns. Include a level
+                // gained from the clear bonus in the same server-owned level-up flag.
+                member.Award = member.Award with { LeveledUp = true };
+            }
             courseItem = GrantCourseItem(client, course);
             GrantCourseDisc(client, course);
         }
@@ -5599,25 +5599,34 @@ public sealed class LocalLobby
     /// Pays the course's [ClearRes] bonus. Max/Exp are percentages of what the final stage
     /// itself earned, matching the "MAX 50% / 경험치 0%" panel the total-result screen draws.
     /// </summary>
-    private void GrantCourseRewards(Client client, CourseDefinition course, uint stageMoney)
+    private bool GrantCourseRewards(
+        Client client,
+        CourseDefinition course,
+        uint stageMoney,
+        uint stageExperience)
     {
         CourseRewards rewards = course.Rewards;
-        uint money = stageMoney * rewards.MoneyPercent / 100;
-        uint experience = stageMoney * rewards.ExperiencePercent / 100;
+        (uint money, uint experience) = CourseRewardPolicy.Calculate(
+            stageMoney, stageExperience, rewards);
         if (money == 0 && experience == 0)
         {
-            return;
+            return false;
         }
 
         StageProgressUpdate update = Players(client).Update(profile =>
         {
+            uint previousLevel = profile.Progress.Level;
             profile.Progress.Money = AddSaturating(profile.Progress.Money, money);
             profile.Progress.Experience =
                 AddSaturating(profile.Progress.Experience, experience);
+            // Course rewards are separate from the final stage's normal payout, but use
+            // the same client EXP curve. Omitting this left stored EXP above the current
+            // threshold and made the client render values such as 150%.
+            ApplyLevelUps(profile.Progress);
             return new StageProgressUpdate(
                 profile.WireUserId, profile.Progress.Money, profile.Progress.Experience,
                 profile.Progress.Level, profile.Progress.Wins, profile.Progress.Losses,
-                profile.Progress.Draws, false, false,
+                profile.Progress.Draws, profile.Progress.Level > previousLevel, false,
                 UserStatisticsBlock.Build(profile.Progress));
         });
 
@@ -5627,6 +5636,7 @@ public sealed class LocalLobby
         Logger.Info(client,
             $"Course \"{course.Name}\" bonus: +{money} MAX ({rewards.MoneyPercent}%), " +
             $"+{experience} exp ({rewards.ExperiencePercent}%).");
+        return update.LeveledUp;
     }
 
     /// <summary>

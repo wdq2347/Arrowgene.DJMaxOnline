@@ -14,6 +14,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.Serve
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.CLI.japan400", "Arrowgene.DJMaxOnline.CLI.japan400\Arrowgene.DJMaxOnline.CLI.japan400.csproj", "{2AC269B6-F7F1-4173-8757-7122EA0F4641}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.Server.china260", "Arrowgene.DJMaxOnline.Server.china260\Arrowgene.DJMaxOnline.Server.china260.csproj", "{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.CLI.china260", "Arrowgene.DJMaxOnline.CLI.china260\Arrowgene.DJMaxOnline.CLI.china260.csproj", "{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -108,6 +112,30 @@ Global
 		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Release|x64.Build.0 = Release|Any CPU
 		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Release|x86.ActiveCfg = Release|Any CPU
 		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Release|x86.Build.0 = Release|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Debug|x64.Build.0 = Debug|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Debug|x86.Build.0 = Debug|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Release|x64.ActiveCfg = Release|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Release|x64.Build.0 = Release|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Release|x86.ActiveCfg = Release|Any CPU
+		{EA8C9D53-5A06-4D8F-8B68-B64DF01A9F93}.Release|x86.Build.0 = Release|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Debug|x64.Build.0 = Debug|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Debug|x86.Build.0 = Debug|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Release|Any CPU.Build.0 = Release|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Release|x64.ActiveCfg = Release|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Release|x64.Build.0 = Release|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Release|x86.ActiveCfg = Release|Any CPU
+		{588DFA9F-98ED-4CC4-A6EF-BFCE5CCD5F76}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -42,4 +42,19 @@ public class PlayerLevelTest
         Assert.That(ExperienceCurve.Required(ExperienceCurve.MaxLevel),
             Is.EqualTo(uint.MaxValue));
     }
+
+    [Test]
+    public void ApplyingARewardAboveTheCurrentThresholdCarriesExpIntoTheNextLevel()
+    {
+        LocalPlayerProgress progress = new() { Experience = 60 };
+
+        bool leveledUp = ExperienceCurve.ApplyLevelUps(progress);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(leveledUp, Is.True);
+            Assert.That(progress.Level, Is.EqualTo(1u));
+            Assert.That(progress.Experience, Is.EqualTo(20u));
+        });
+    }
 }

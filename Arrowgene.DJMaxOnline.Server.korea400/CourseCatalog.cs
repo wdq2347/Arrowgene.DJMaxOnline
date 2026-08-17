@@ -74,6 +74,21 @@ public sealed record CourseRewards(
     public bool HasDisc => DiscCode is >= 0x400 and <= 0x43F;
 }
 
+/// <summary>Calculates a course-clear's percentage bonuses from the matching stage award.</summary>
+public static class CourseRewardPolicy
+{
+    public static (uint Money, uint Experience) Calculate(
+        uint stageMoney,
+        uint stageExperience,
+        CourseRewards rewards)
+    {
+        ArgumentNullException.ThrowIfNull(rewards);
+        return (
+            stageMoney * rewards.MoneyPercent / 100,
+            stageExperience * rewards.ExperiencePercent / 100);
+    }
+}
+
 public sealed record CourseDefinition(
     ushort Id,
     string Name,

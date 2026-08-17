@@ -949,6 +949,13 @@ public sealed record StageTotals(
 /// <param name="NewRecord">Whether the run beat the stored best (struct+44).</param>
 public sealed record StageAward(uint Money, bool LeveledUp, bool NewRecord)
 {
+    /// <summary>
+    /// EXP credited for the run. It is not part of the stage-result wire record, but a
+    /// course's <c>[ClearRes] Exp</c> percentage must be based on this value rather than
+    /// the MAX payout.
+    /// </summary>
+    public uint Experience { get; init; }
+
     public static readonly StageAward None = new(0, false, false);
 }
 
