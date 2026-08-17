@@ -1,7 +1,7 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Text;
-using Arrowgene.DJMaxOnline.Server;
-using Arrowgene.DJMaxOnline.Server.Packets;
+using Arrowgene.DJMaxOnline.Server.Korea400;
+using Arrowgene.DJMaxOnline.Server.Korea400.Packets;
 using Microsoft.Data.Sqlite;
 
 namespace Arrowgene.DJMaxOnline.Test;
@@ -210,6 +210,58 @@ public sealed class PasswordAndTicketSecurityTest
         string expired = tickets.Issue(43);
         time.Advance(TimeSpan.FromSeconds(11));
         Assert.That(tickets.TryConsume(expired, out _), Is.False);
+    }
+
+    [Test]
+    public void SoleLauncherSessionAdmitsTheSecondClientSocket()
+    {
+        LoginTicketService tickets = new();
+        tickets.Issue(42);
+
+        Assert.That(
+            tickets.TryOpenSoleLauncherSession(out uint firstUser, out LoginSessionLease? first),
+            Is.True);
+        Assert.That(firstUser, Is.EqualTo(42));
+        Assert.That(first!.IsReconnect, Is.False);
+
+        // The JP client opens its selected-channel socket without repeating its ticket.
+        // It must join the one live launcher session rather than being handed a placeholder
+        // identity just because the ticket was consumed by the server-list socket.
+        Assert.That(
+            tickets.TryOpenSoleLauncherSession(out uint secondUser, out LoginSessionLease? second),
+            Is.True);
+        Assert.That(secondUser, Is.EqualTo(42));
+        Assert.That(second!.IsReconnect, Is.True);
+
+        Assert.That(
+            tickets.TryOpenSoleLauncherSession(out _, out _),
+            Is.False,
+            "only the server-list and selected-channel sockets may overlap");
+    }
+
+    [Test]
+    public void RepeatedLoginForOneAccountLeavesOnePendingLauncherContext()
+    {
+        LoginTicketService tickets = new();
+        tickets.Issue(42);
+        tickets.Issue(42);
+        tickets.Issue(42);
+
+        Assert.That(
+            tickets.TryOpenSoleLauncherSession(out uint userId, out LoginSessionLease? lease),
+            Is.True,
+            "launcher retry traffic for one account must not look like several players");
+        Assert.That(userId, Is.EqualTo(42));
+        Assert.That(lease, Is.Not.Null);
+
+        LoginTicketService competingTickets = new();
+        competingTickets.Issue(42);
+        competingTickets.Issue(42);
+        competingTickets.Issue(99);
+        Assert.That(
+            competingTickets.TryOpenSoleLauncherSession(out _, out _),
+            Is.False,
+            "a pending login for another account must still be treated as ambiguous");
     }
 
     [Test]

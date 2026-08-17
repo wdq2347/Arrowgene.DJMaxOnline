@@ -1,6 +1,6 @@
-using Arrowgene.DJMaxOnline.Server;
-using Arrowgene.DJMaxOnline.Server.Packets;
-using Arrowgene.DJMaxOnline.Server.Protocol;
+﻿using Arrowgene.DJMaxOnline.Server.Korea400;
+using Arrowgene.DJMaxOnline.Server.Korea400.Packets;
+using Arrowgene.DJMaxOnline.Server.Korea400.Protocol;
 
 namespace Arrowgene.DJMaxOnline.Test;
 
@@ -234,14 +234,14 @@ public class EasyServerPacketTest
     }
 
     private static Packet QuickInviteReqPacketForTest() =>
-        Arrowgene.DJMaxOnline.Server.Protocol.DjMaxPacketBuilder
+        Arrowgene.DJMaxOnline.Server.Korea400.Protocol.DjMaxPacketBuilder
             .Fixed(PacketMeta.QuickInviteReq, ProtocolPadding.Unused)
             .Build();
 
     private static Packet BuildCapturedRequest(
         PacketMeta meta,
         byte[] payload) =>
-        Arrowgene.DJMaxOnline.Server.Protocol.DjMaxPacketBuilder
+        Arrowgene.DJMaxOnline.Server.Korea400.Protocol.DjMaxPacketBuilder
             .Fixed(meta, ProtocolPadding.Unused)
             .WriteBytes(payload)
             .Build();

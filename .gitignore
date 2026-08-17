@@ -6,6 +6,7 @@ log.txt
 .claude
 /patterns
 /data
+/DATA-JP
 /custom
 
 /patch
@@ -19,3 +20,5 @@ log.txt
 xipkeys/
 xipKeys/
 
+jpcustom/
+check/

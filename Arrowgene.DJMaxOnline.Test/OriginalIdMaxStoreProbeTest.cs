@@ -1,4 +1,4 @@
-using Arrowgene.DJMaxOnline.Server;
+﻿using Arrowgene.DJMaxOnline.Server.Korea400;
 
 namespace Arrowgene.DJMaxOnline.Test;
 

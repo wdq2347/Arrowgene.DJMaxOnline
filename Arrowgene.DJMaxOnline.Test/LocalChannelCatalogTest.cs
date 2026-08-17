@@ -1,6 +1,6 @@
-using System.Net;
-using Arrowgene.DJMaxOnline.Server;
-using Arrowgene.DJMaxOnline.Server.Packets;
+﻿using System.Net;
+using Arrowgene.DJMaxOnline.Server.Korea400;
+using Arrowgene.DJMaxOnline.Server.Korea400.Packets;
 
 namespace Arrowgene.DJMaxOnline.Test;
 

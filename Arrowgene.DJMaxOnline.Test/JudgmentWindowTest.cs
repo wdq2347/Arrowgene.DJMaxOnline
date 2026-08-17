@@ -1,5 +1,5 @@
-using System.Buffers.Binary;
-using Arrowgene.DJMaxOnline.Server;
+﻿using System.Buffers.Binary;
+using Arrowgene.DJMaxOnline.Server.Korea400;
 
 namespace Arrowgene.DJMaxOnline.Test;
 

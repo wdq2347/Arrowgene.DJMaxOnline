@@ -2,13 +2,17 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.CLI", "Arrowgene.DJMaxOnline.CLI\Arrowgene.DJMaxOnline.CLI.csproj", "{1F179BC9-8C8A-4337-AD2E-02CEA30326CA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.Server", "Arrowgene.DJMaxOnline.Server\Arrowgene.DJMaxOnline.Server.csproj", "{3C3ADA43-CE74-46F6-9F1E-BA271393F165}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.Server.korea400", "Arrowgene.DJMaxOnline.Server.korea400\Arrowgene.DJMaxOnline.Server.korea400.csproj", "{3C3ADA43-CE74-46F6-9F1E-BA271393F165}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.Test", "Arrowgene.DJMaxOnline.Test\Arrowgene.DJMaxOnline.Test.csproj", "{DEFCE49F-6B6A-462D-8B88-1A3F69F51AC2}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.Launcher", "Arrowgene.DJMaxOnline.Launcher\Arrowgene.DJMaxOnline.Launcher.csproj", "{28808405-3E59-41EF-BD08-E5FA6739B89B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.Updater", "Arrowgene.DJMaxOnline.Updater\Arrowgene.DJMaxOnline.Updater.csproj", "{4E99E591-08A0-41CB-8965-D08E7FB8D95B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.Server.japan400", "Arrowgene.DJMaxOnline.Server.japan400\Arrowgene.DJMaxOnline.Server.japan400.csproj", "{4242155E-535D-46DF-9A20-0F19808A613F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Arrowgene.DJMaxOnline.CLI.japan400", "Arrowgene.DJMaxOnline.CLI.japan400\Arrowgene.DJMaxOnline.CLI.japan400.csproj", "{2AC269B6-F7F1-4173-8757-7122EA0F4641}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -80,6 +84,30 @@ Global
 		{4E99E591-08A0-41CB-8965-D08E7FB8D95B}.Release|x64.Build.0 = Release|Any CPU
 		{4E99E591-08A0-41CB-8965-D08E7FB8D95B}.Release|x86.ActiveCfg = Release|Any CPU
 		{4E99E591-08A0-41CB-8965-D08E7FB8D95B}.Release|x86.Build.0 = Release|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Debug|x64.Build.0 = Debug|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Debug|x86.Build.0 = Debug|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Release|x64.ActiveCfg = Release|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Release|x64.Build.0 = Release|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Release|x86.ActiveCfg = Release|Any CPU
+		{4242155E-535D-46DF-9A20-0F19808A613F}.Release|x86.Build.0 = Release|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Debug|x64.Build.0 = Debug|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Debug|x86.Build.0 = Debug|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Release|x64.ActiveCfg = Release|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Release|x64.Build.0 = Release|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Release|x86.ActiveCfg = Release|Any CPU
+		{2AC269B6-F7F1-4173-8757-7122EA0F4641}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

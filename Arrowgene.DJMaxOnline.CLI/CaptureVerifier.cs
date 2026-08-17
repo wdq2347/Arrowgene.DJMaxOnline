@@ -1,8 +1,8 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Net;
-using Arrowgene.DJMaxOnline.Server;
-using Arrowgene.DJMaxOnline.Server.Packets;
-using Arrowgene.DJMaxOnline.Server.Protocol;
+using Arrowgene.DJMaxOnline.Server.Korea400;
+using Arrowgene.DJMaxOnline.Server.Korea400.Packets;
+using Arrowgene.DJMaxOnline.Server.Korea400.Protocol;
 
 namespace Arrowgene.DJMaxOnline;
 

@@ -1,5 +1,5 @@
-using System.Net;
-using Arrowgene.DJMaxOnline.Server;
+﻿using System.Net;
+using Arrowgene.DJMaxOnline.Server.Korea400;
 using NUnit.Framework;
 
 namespace Arrowgene.DJMaxOnline.Test;
@@ -249,8 +249,8 @@ public class DownloadUrlPacketTest
     [TestCase("https://updates.example.com/song/")]
     public void AcceptsEverySchemeTheClientDownloaderSupports(string url)
     {
-        Server.Packets.EnvironmentSetting setting =
-            Server.Packets.OnEnvironmentInfPacket.DownloadUrl(url);
+        Server.Korea400.Packets.EnvironmentSetting setting =
+            Server.Korea400.Packets.OnEnvironmentInfPacket.DownloadUrl(url);
 
         Assert.That(setting.Name, Is.EqualTo("DOWNLOADURL"));
         Assert.That(setting.Value, Is.EqualTo(url));
@@ -261,7 +261,7 @@ public class DownloadUrlPacketTest
     [TestCase("")]
     public void RejectsAnythingTheDownloaderCannotFetch(string url)
     {
-        Assert.That(() => Server.Packets.OnEnvironmentInfPacket.DownloadUrl(url),
+        Assert.That(() => Server.Korea400.Packets.OnEnvironmentInfPacket.DownloadUrl(url),
             Throws.InstanceOf<ArgumentException>());
     }
 
@@ -277,7 +277,7 @@ public class DownloadUrlPacketTest
         };
 
         Assert.That(
-            () => Server.Packets.OnEnvironmentInfPacket.DownloadUrl(
+            () => Server.Korea400.Packets.OnEnvironmentInfPacket.DownloadUrl(
                 ContentDelivery.SongUrl(setting)),
             Throws.Nothing);
     }

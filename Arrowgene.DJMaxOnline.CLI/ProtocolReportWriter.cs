@@ -1,6 +1,6 @@
-using System.Text;
-using Arrowgene.DJMaxOnline.Server;
-using Arrowgene.DJMaxOnline.Server.Protocol;
+﻿using System.Text;
+using Arrowgene.DJMaxOnline.Server.Korea400;
+using Arrowgene.DJMaxOnline.Server.Korea400.Protocol;
 
 namespace Arrowgene.DJMaxOnline;
 

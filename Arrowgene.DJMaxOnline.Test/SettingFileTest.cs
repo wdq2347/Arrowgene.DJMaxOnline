@@ -1,5 +1,5 @@
-using System.Net;
-using Arrowgene.DJMaxOnline.Server;
+﻿using System.Net;
+using Arrowgene.DJMaxOnline.Server.Korea400;
 
 namespace Arrowgene.DJMaxOnline.Test;
 

@@ -1,4 +1,4 @@
-using Arrowgene.DJMaxOnline.Server.Pak;
+﻿using Arrowgene.DJMaxOnline.Server.Korea400.Pak;
 
 namespace Arrowgene.DJMaxOnline;
 

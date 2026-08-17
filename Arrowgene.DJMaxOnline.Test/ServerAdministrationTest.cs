@@ -1,5 +1,5 @@
-using Arrowgene.DJMaxOnline.Server;
-using Arrowgene.DJMaxOnline.Server.Packets;
+﻿using Arrowgene.DJMaxOnline.Server.Korea400;
+using Arrowgene.DJMaxOnline.Server.Korea400.Packets;
 using Microsoft.Data.Sqlite;
 using System.Text;
 

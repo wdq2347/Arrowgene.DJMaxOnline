@@ -16,7 +16,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Arrowgene.DJMaxOnline.Server\Arrowgene.DJMaxOnline.Server.csproj" />
+      <ProjectReference Include="..\Arrowgene.DJMaxOnline.Server.korea400\Arrowgene.DJMaxOnline.Server.korea400.csproj" />
     </ItemGroup>
 
 </Project>

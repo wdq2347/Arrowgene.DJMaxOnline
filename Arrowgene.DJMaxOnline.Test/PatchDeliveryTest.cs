@@ -1,6 +1,6 @@
-using System.Net;
+﻿using System.Net;
 using System.Security.Cryptography;
-using Arrowgene.DJMaxOnline.Server;
+using Arrowgene.DJMaxOnline.Server.Korea400;
 using Arrowgene.DJMaxOnline.Updater;
 using NUnit.Framework;
 

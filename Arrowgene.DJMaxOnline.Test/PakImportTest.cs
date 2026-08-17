@@ -1,4 +1,4 @@
-using Arrowgene.DJMaxOnline.Server.Pak;
+﻿using Arrowgene.DJMaxOnline.Server.Korea400.Pak;
 using NUnit.Framework;
 
 namespace Arrowgene.DJMaxOnline.Test;

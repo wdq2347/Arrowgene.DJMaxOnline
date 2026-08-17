@@ -1,7 +1,7 @@
 ﻿using System.Buffers.Binary;
-using Arrowgene.DJMaxOnline.Server;
-using Arrowgene.DJMaxOnline.Server.Packets;
-using Arrowgene.DJMaxOnline.Server.Protocol;
+using Arrowgene.DJMaxOnline.Server.Korea400;
+using Arrowgene.DJMaxOnline.Server.Korea400.Packets;
+using Arrowgene.DJMaxOnline.Server.Korea400.Protocol;
 
 namespace Arrowgene.DJMaxOnline.Test;
 
@@ -253,6 +253,31 @@ public class GameplayResultPacketTest
             Assert.That(playState.BaseScore, Is.EqualTo(6_838.7085f).Within(0.001f));
             Assert.That(playState.EncodedMaxCombo, Is.EqualTo(0x72E8));
             Assert.That(playState.DecodeMaxCombo(loginKey), Is.EqualTo(16));
+        });
+    }
+
+    [Test]
+    public void PlayStateUnmasksMaximumComboBeforeItIsRelayed()
+    {
+        // OnPlayStateInf copies this word directly into a REMOTE player's state. The
+        // sender's local state is masked, so forwarding 0x72E8 directly would render
+        // 29416 instead of the actual 16-combo streak.
+        const ushort senderKey = 0x72F8;
+        byte[] sourceBytes = Convert.FromHexString("00001143ABB5D545E8725C");
+        PlayState source = new(sourceBytes);
+
+        PlayState relayed = source.DecodeMaxComboForRelay(senderKey);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source.DecodeMaxCombo(senderKey), Is.EqualTo(16),
+                "the sender's captured state stays untouched");
+            Assert.That(relayed.EncodedMaxCombo, Is.EqualTo(16),
+                "the recipient receives the plain maximum combo");
+            Assert.That(relayed.Data[..8], Is.EqualTo(sourceBytes[..8]),
+                "gauge and score are not connection-keyed");
+            Assert.That(relayed.Data[10], Is.EqualTo(sourceBytes[10]),
+                "the live/failed state is not connection-keyed");
         });
     }
 

@@ -1,5 +1,5 @@
-using System.Globalization;
-using Arrowgene.DJMaxOnline.Server;
+﻿using System.Globalization;
+using Arrowgene.DJMaxOnline.Server.Korea400;
 using Arrowgene.Logging;
 using YamlDotNet.Serialization;
 
