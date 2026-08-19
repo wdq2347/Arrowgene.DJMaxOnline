@@ -392,6 +392,8 @@ public static class SettingFile
         ["ItemsNeverExpire"] = "New shop/course items are permanent and the server never removes timed inventory. Existing expiry values are left unchanged.",
         ["UnlockAllCourses"] =
             "Offer every course in CourseSection.ini; false uses normal prerequisites.",
+        ["CourseItemRewards"] =
+            "Clearing a course rolls its random item award; false grants no item (MAX and EXP bonuses are unaffected).",
         ["LoginTicketLifetimeSeconds"] = "How long a launcher ticket stays redeemable (max 300).",
         ["AccuracyDiscTolerance"] = "How close accuracy must be to an AccuracyDiscs entry to earn it.",
         ["MessageOfTheDay"] = "Repeat this key for more lines.",

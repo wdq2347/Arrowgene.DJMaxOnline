@@ -90,6 +90,7 @@ public class LauncherConfigTest
         Set(written, "LocaleEmulator", @"C:\calocalemu\LEProc.exe");
         Set(written, "LocaleProfile", "208b1daa-34a6-4d21-838d-a3f813d742da");
         Set(written, "GamePath", @"C:\game\DJMax.exe");
+        Set(written, "Windowed", true);
         Save(written);
 
         object reloaded = Load();
@@ -103,6 +104,7 @@ public class LauncherConfigTest
             Assert.That(Get(reloaded, "LocaleProfile"),
                 Is.EqualTo("208b1daa-34a6-4d21-838d-a3f813d742da"));
             Assert.That(Get(reloaded, "GamePath"), Is.EqualTo(@"C:\game\DJMax.exe"));
+            Assert.That(Get(reloaded, "Windowed"), Is.True);
         });
     }
 

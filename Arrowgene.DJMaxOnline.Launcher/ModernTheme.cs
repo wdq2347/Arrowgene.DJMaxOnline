@@ -1,4 +1,4 @@
-using System.Drawing.Drawing2D;
+﻿using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 
 namespace Arrowgene.DJMaxOnline.Launcher;
@@ -572,5 +572,98 @@ internal sealed class NewsPanel : Panel
             new RectangleF(thumb.X, 0, thumb.Width, ClientSize.Height), thumb.Width / 2F,
             ModernTheme.Well);
         ModernTheme.FillRounded(g, thumb, thumb.Width / 2F, ModernTheme.Line);
+    }
+}
+
+/// <summary>
+/// A dark drop-down list.
+///
+/// A ComboBox paints its own frame and drop button with the system theme, and neither
+/// honours BackColor - on a dark form that leaves a white button and a bright blue focus
+/// fill. So the closed face is repainted here after the control has drawn itself: the same
+/// rounded well, border and chevron the text fields use. Only the opened list is left to
+/// Windows, drawn item by item through OnDrawItem.
+/// </summary>
+internal sealed class ModernCombo : ComboBox
+{
+    internal ModernCombo()
+    {
+        SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
+        DropDownStyle = ComboBoxStyle.DropDownList;
+        DrawMode = DrawMode.OwnerDrawFixed;
+        FlatStyle = FlatStyle.Flat;
+        BackColor = ModernTheme.Well;
+        ForeColor = ModernTheme.Text;
+        Font = ModernTheme.Ui(8.5F);
+        ItemHeight = 18;
+        Cursor = Cursors.Hand;
+    }
+
+    protected override void OnDrawItem(DrawItemEventArgs e)
+    {
+        // Only the dropped-down list reaches here in a way that matters; the closed face
+        // is overpainted in WndProc below.
+        if (e.Index < 0)
+        {
+            return;
+        }
+
+        bool highlighted = (e.State & DrawItemState.Selected) != 0 &&
+                           (e.State & DrawItemState.ComboBoxEdit) == 0;
+        using (SolidBrush fill = new(highlighted ? ModernTheme.Accent : ModernTheme.Well))
+        {
+            e.Graphics.FillRectangle(fill, e.Bounds);
+        }
+        TextRenderer.DrawText(e.Graphics, Items[e.Index]?.ToString() ?? string.Empty,
+            Font, e.Bounds, highlighted ? Color.White : ModernTheme.Text,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+            TextFormatFlags.EndEllipsis);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+
+        const int WM_PAINT = 0x000F;
+        if (m.Msg != WM_PAINT)
+        {
+            return;
+        }
+
+        using Graphics g = Graphics.FromHwnd(Handle);
+
+        // Erase what the control just drew before painting over it. Without this the
+        // system border survives outside the rounded corners - a square light-grey
+        // outline poking out at all four edges. Cleared to the CARD colour because that
+        // is what sits behind the control, so the area outside the corner radius reads as
+        // the card rather than as a box around the field.
+        ModernTheme.Clear(g, ClientRectangle, ModernTheme.Card);
+        ModernTheme.Smooth(g);
+
+        RectangleF face = new(0.5F, 0.5F, Width - 1F, Height - 1F);
+        // Accent only while the list is actually open. Keying it off Focused lit the
+        // border permanently, because the control takes focus as soon as the form loads.
+        ModernTheme.Surface(g, face, 6F, ModernTheme.Well,
+            DroppedDown ? ModernTheme.Accent : ModernTheme.Line);
+
+        Rectangle text = new(10, 0, Width - 32, Height);
+        TextRenderer.DrawText(g, SelectedItem?.ToString() ?? string.Empty, Font, text,
+            Enabled ? ModernTheme.Text : ModernTheme.TextDim,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+            TextFormatFlags.EndEllipsis);
+
+        // Chevron, in place of the system drop button.
+        using Pen chevron = new(Enabled ? ModernTheme.TextDim : ModernTheme.Line, 1.6F)
+        {
+            StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round
+        };
+        float cx = Width - 15F;
+        float cy = Height / 2F - 1F;
+        g.DrawLines(chevron, new[]
+        {
+            new PointF(cx - 4F, cy - 2F),
+            new PointF(cx, cy + 2.5F),
+            new PointF(cx + 4F, cy - 2F)
+        });
     }
 }

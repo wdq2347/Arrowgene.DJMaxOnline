@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Arrowgene.DJMaxOnline.Updater;
 
 namespace Arrowgene.DJMaxOnline.Launcher;
@@ -11,6 +11,18 @@ internal sealed class LauncherConfig
     public string AccountId { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public string GamePath { get; set; } = string.Empty;
+    /// <summary>Whether the launcher adds <c>-windowed</c> to the client command line.</summary>
+    public bool Windowed { get; set; }
+
+    /// <summary>
+    /// Scaled client size, as <c>WIDTHxHEIGHT</c>, or empty for the game's native 800x600.
+    ///
+    /// Only meaningful when dinput.dll is present beside the game: the upscale, like
+    /// windowed mode, is implemented by that DLL and not by the client. With no DLL the
+    /// launcher passes neither switch, because the client would just receive arguments
+    /// nothing understands.
+    /// </summary>
+    public string Resolution { get; set; } = string.Empty;
     /// <summary>
     /// The server's login API. One route for every case: a server on this machine is
     /// simply <c>http://127.0.0.1:8091/login</c>, a remote one is its public address.
@@ -189,6 +201,12 @@ internal sealed class LauncherConfig
                 case "gamepath":
                     config.GamePath = value;
                     break;
+                case "windowed":
+                    config.Windowed = bool.TryParse(value, out bool windowed) && windowed;
+                    break;
+                case "resolution":
+                    config.Resolution = value.Trim();
+                    break;
                 case "loginurl":
                     // Blank keeps the default rather than disabling login.
                     if (!string.IsNullOrWhiteSpace(value))
@@ -272,6 +290,12 @@ internal sealed class LauncherConfig
             "# Credentials are stored as plain text when saveCredentials=true.",
             $"saveCredentials={SaveCredentials.ToString().ToLowerInvariant()}",
             $"gamePath={GamePath}",
+            "# Adds -windowed after the launcher ticket when true.",
+            $"windowed={Windowed.ToString().ToLowerInvariant()}",
+            "# Scaled window size as WIDTHxHEIGHT, e.g. 1280x960. Empty means the game's",
+            "# native 800x600. Both this and windowed need dinput.dll beside the game;",
+            "# without it the launcher passes neither, so the client sees no stray flags.",
+            $"resolution={Resolution}",
             string.Empty,
             "# Where the launcher logs in. The same address works for a server on this",
             "# machine and a remote one - only the host differs:",

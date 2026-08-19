@@ -189,6 +189,18 @@ public class Setting
     [DataMember(Order = 47)] public bool UnlockAllCourses { get; set; }
 
     /// <summary>
+    /// Whether clearing a course rolls its [ClearRes] Itemnum award. False stops the
+    /// random item entirely; the MAX and EXP bonuses are unaffected, so a course still
+    /// pays out, it just never drops an item.
+    ///
+    /// The awards themselves are single-use by catalog - both live in ItemStock section 5
+    /// (the booster band) with countable=1, wCount=1 and expire=0 - so they are granted
+    /// one at a time and removed outright when used. This switch is about whether they
+    /// are handed out at all, not how long they last.
+    /// </summary>
+    [DataMember(Order = 66)] public bool CourseItemRewards { get; set; }
+
+    /// <summary>
     /// Transport tuning from Arrowgene.Networking. Not written to the settings file: it is
     /// socket internals rather than deployment policy.
     /// </summary>
@@ -373,6 +385,7 @@ public class Setting
         AccuracyDiscTolerance = CollectionDiscs.DefaultTolerance;
         LoginTicketLifetimeSeconds = 60;
         UnlockAllCourses = false;
+        CourseItemRewards = true;
     }
 
     public Setting(Setting setting)
@@ -437,5 +450,6 @@ public class Setting
         AccuracyDiscTolerance = setting.AccuracyDiscTolerance;
         LoginTicketLifetimeSeconds = setting.LoginTicketLifetimeSeconds;
         UnlockAllCourses = setting.UnlockAllCourses;
+        CourseItemRewards = setting.CourseItemRewards;
     }
 }

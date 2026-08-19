@@ -23,7 +23,8 @@ public sealed record NewsItem(string Headline, string Date, string Body);
 /// Course rankings are recorded per key mode.
 /// </code>
 /// Line 1 is the headline, line 2 the date (surrounding brackets are stripped), and the
-/// rest is the body, joined into one paragraph.
+/// rest is the body. Its line breaks are retained so a news card can use one line per
+/// change rather than squeezing the whole announcement into one paragraph.
 ///
 /// This is REMOTE TEXT: it is displayed, never executed, never written to disk, and never
 /// used to name a file. The only bound worth enforcing is size, so a broken or hostile
@@ -77,7 +78,7 @@ public static class NewsFeed
             items.Add(new NewsItem(
                 headline,
                 lines[1].Trim().Trim('[', ']').Trim(),
-                string.Join(' ', lines[2..].Select(line => line.Trim())).Trim()));
+                string.Join('\n', lines[2..].Select(line => line.Trim())).Trim()));
         }
 
         return items;

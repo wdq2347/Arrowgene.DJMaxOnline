@@ -385,7 +385,7 @@ public class PatchDeliveryTest
     {
         WritePatchFile(
             "news.txt",
-            "Server online\n[2026-08-11]\nSEOUL and TOKYO are up.\n\n" +
+            "Server online\n[2026-08-11]\nSEOUL and TOKYO are up.\nWindowed mode is available.\n\n" +
             "Course mode\nAvailable\nRankings are per key mode.");
 
         using LocalContentServer server = new(Configure());
@@ -400,7 +400,8 @@ public class PatchDeliveryTest
             Assert.That(news, Has.Count.EqualTo(2));
             Assert.That(news[0].Headline, Is.EqualTo("Server online"));
             Assert.That(news[0].Date, Is.EqualTo("2026-08-11"), "brackets are stripped");
-            Assert.That(news[0].Body, Is.EqualTo("SEOUL and TOKYO are up."));
+            Assert.That(news[0].Body,
+                Is.EqualTo("SEOUL and TOKYO are up.\nWindowed mode is available."));
             Assert.That(news[1].Headline, Is.EqualTo("Course mode"));
         });
     }

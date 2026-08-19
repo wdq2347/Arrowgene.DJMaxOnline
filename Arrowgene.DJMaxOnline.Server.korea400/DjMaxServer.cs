@@ -363,6 +363,7 @@ public class DjMaxServer
                         _playerRepository, ClientLookup, _loginTickets),
                 BattleItemComboInterval = _setting.BattleItemComboInterval,
                 UnlockAllCourses = _setting.UnlockAllCourses,
+                CourseItemRewards = _setting.CourseItemRewards,
                 JudgmentAdjustmentMsByMatchMode =
                     [.. _setting.JudgmentAdjustmentMsByMatchMode ?? []],
                 AccuracyDiscs = [.. _setting.AccuracyDiscs ?? []]

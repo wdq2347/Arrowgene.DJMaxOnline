@@ -122,6 +122,13 @@ public sealed class LocalLobby
     /// </summary>
     public bool UnlockAllCourses { get; init; }
 
+    /// <summary>
+    /// Whether clearing a course rolls its random item award. False skips the roll
+    /// entirely, so no item is granted and none is announced on the result screen. The
+    /// course's MAX and EXP bonuses are unaffected.
+    /// </summary>
+    public bool CourseItemRewards { get; init; } = true;
+
     /// <summary>Exact-accuracy collection discs; empty disables them.</summary>
     public IReadOnlyList<AccuracyDiscRule> AccuracyDiscs { get; init; } = [];
 
@@ -929,6 +936,12 @@ public sealed class LocalLobby
             return true;
         }
 
+        if (TryReadCommandArgument(request, "/speed", out byte[] speedArgs))
+        {
+            RunSpeed(sender, System.Text.Encoding.ASCII.GetString(speedArgs).Trim());
+            return true;
+        }
+
         if (!TryReadCommandArgument(request, "/chatfx", out byte[] arguments))
         {
             return false;
@@ -1066,6 +1079,8 @@ public sealed class LocalLobby
     {
         SendSystemChat(client,
             "/invite <nickname> - invite a player in this channel to your room");
+        SendSystemChat(client,
+            "/speed [rate] - scroll speeds for the selected disc");
         SendSystemChat(client, "/help - show this list");
         if (!isAdmin)
         {
@@ -1083,6 +1098,56 @@ public sealed class LocalLobby
         SendSystemChat(client, "/ban <nickname> <reason> - lock an account and kick it");
         SendSystemChat(client, "/suspend <nickname> <reason> - lock as 'under review'");
         SendSystemChat(client, "/unban <nickname> - let them back in");
+    }
+
+    /// <summary>
+    /// /speed. Lists what each selectable speed actually scrolls at on the disc the room
+    /// has chosen.
+    ///
+    /// The multiplier alone tells a player nothing: x3.0 on a 90 BPM chart scrolls slower
+    /// than x2.0 on a 150 BPM one. What decides the feel is BPM x multiplier, so that is
+    /// the number reported against each setting.
+    /// </summary>
+    private void RunSpeed(Client sender, string arguments)
+    {
+        if (!_memberships.TryGetValue(sender, out LocalRoomMember? member) ||
+            !member.HasDisc ||
+            !_songs.TryGet(member.DiscId + 1, out SongDefinition? song))
+        {
+            SendSystemChat(sender, "/speed needs a disc selected in the room first.");
+            return;
+        }
+
+        double bpm = (double)song.Bpm;
+
+        // "/speed <rate>" - the player names a scroll rate they already like and gets the
+        // two settings on THIS chart that bracket it.
+        if (arguments.Length != 0 &&
+            double.TryParse(arguments, out double target) && target > 0)
+        {
+            IReadOnlyList<double> nearest =
+                ScrollSpeedTable.NearestPlayerSpeeds(bpm, target);
+            SendSystemChat(sender,
+                $"{song.DisplayTitle} - {bpm:0.#} BPM, closest to {target:0}: " +
+                string.Join("  ", nearest.Select(multiplier =>
+                    $"x{multiplier:0.0}={ScrollSpeedTable.Effective(bpm, multiplier):0}")));
+            return;
+        }
+
+        SendSystemChat(sender,
+            $"{song.DisplayTitle} - {bpm:0.#} BPM. Scroll = BPM x speed:");
+
+        // Two rows rather than nine lines: the client's chat history is short, and a player
+        // wants to compare the numbers at a glance rather than scroll through them.
+        List<double> speeds = [.. ScrollSpeedTable.PlayerSpeeds];
+        for (int start = 0; start < speeds.Count; start += 5)
+        {
+            SendSystemChat(sender, string.Join("  ", speeds
+                .Skip(start)
+                .Take(5)
+                .Select(multiplier =>
+                    $"x{multiplier:0.0}={ScrollSpeedTable.Effective(bpm, multiplier):0}")));
+        }
     }
 
     /// <summary>
@@ -2069,6 +2134,26 @@ public sealed class LocalLobby
         // verbatim, so the raw field reads "Y_Have_To_Follow_Me" in the chat window.
         Send(recipients, OnChatInfPacket.BuildAscii(
             $"{song.DisplayTitle}{chartLabel}{bpm}{length}", ChartAnnouncementType));
+
+        // Scroll speeds alongside the chart, because the multiplier alone says nothing:
+        // x3.0 on a 90 BPM chart is slower than x2.0 on a 150 BPM one. Announced here so
+        // the numbers arrive while the room can still act on them.
+        if (song.Bpm > 0)
+        {
+            double songBpm = (double)song.Bpm;
+            List<double> speeds = [.. ScrollSpeedTable.PlayerSpeeds];
+            for (int start = 0; start < speeds.Count; start += 5)
+            {
+                Send(recipients, OnChatInfPacket.BuildAscii(
+                    string.Join("  ", speeds
+                        .Skip(start)
+                        .Take(5)
+                        .Select(multiplier =>
+                            $"x{multiplier:0.0}=" +
+                            $"{ScrollSpeedTable.Effective(songBpm, multiplier):0}")),
+                    ChartAnnouncementType));
+            }
+        }
     }
 
     public void CreateRoom(Client client, RoomCreateRequest request)
@@ -3635,6 +3720,7 @@ public sealed class LocalLobby
         // other client read the chart's difficulty from. Zeroing it pinned every room to EZ.
         Send(recipients, OnChangeDiscInfPacket.Build(request.DiscId, request.Difficulty));
         Send(waiting, OnRoomInfoInfPacket.Build(grid));
+        AnnounceChart(recipients, selectedSong, request.Difficulty);
         SongKeyMode keyMode = Channel.KeyMode;
         int availableCharts = selectedSong.Charts.Count(chart =>
             chart.KeyMode == keyMode && chart.IsAvailable);
@@ -4131,7 +4217,10 @@ public sealed class LocalLobby
         // game-info mode byte above buys is the asset root and the "mission clear" result
         // component.
         SendGameInfo(recipients, gameInfo!, discId, difficulty, roomDescriptor, roomWindows);
-        AnnounceChart(recipients, selectedSong, difficulty);
+        // The chart is announced when it is SELECTED, not here. At start the room has
+        // already left song select and the loading screen is up, so the message scrolled
+        // past before anyone could read it - and the scroll speeds are only useful while
+        // there is still time to change one.
         Send(recipients, OnJoinEventInfPacket.Build());
         foreach (LocalRoomMember member in members)
         {
@@ -5647,6 +5736,15 @@ public sealed class LocalLobby
     private TimedInventoryItem? GrantCourseItem(Client client, CourseDefinition course)
     {
         if (course.Rewards.Items.Count == 0)
+        {
+            return null;
+        }
+
+        // Refuse before the roll, not after: returning null here leaves the result
+        // screen's item slot empty and skips the inventory refresh entirely, so the
+        // client never sees an award it did not get. The course's MAX and EXP bonuses
+        // are paid separately and are unaffected.
+        if (!CourseItemRewards)
         {
             return null;
         }

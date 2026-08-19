@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -6,7 +6,8 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-  </PropertyGroup>
+      <Version>1.1.3</Version>
+</PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Arrowgene.DJMaxOnline.Updater\Arrowgene.DJMaxOnline.Updater.csproj" />

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Net;
 using Arrowgene.DJMaxOnline.Updater;
@@ -17,8 +17,8 @@ internal sealed class LauncherForm : Form
 {
     private const int TitleBarHeight = 38;
 
-    private static readonly Rectangle AccountCard = new(16, 52, 320, 260);
-    private static readonly Rectangle NewsCard = new(348, 52, 316, 260);
+    private static Rectangle AccountCard = new(16, 52, 320, 316);
+    private static Rectangle NewsCard = new(348, 52, 316, 316);
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(10) };
 
@@ -48,6 +48,10 @@ internal sealed class LauncherForm : Form
     private readonly ModernField _gamePath = new();
     private readonly ModernCheck _saveCredentials = new();
     private readonly ModernCheck _showPassword = new();
+    private readonly ModernCheck _windowed = new();
+    private readonly ModernCombo _resolution = new();
+    /// <summary>Field captions, placed by PositionControls and drawn by OnPaint.</summary>
+    private readonly List<(string Caption, Rectangle Bounds)> _captions = [];
     private readonly ModernButton _browseButton = new(ButtonKind.Neutral);
     private readonly ModernButton _updateButton = new(ButtonKind.Ghost);
     private readonly ModernButton _loginButton = new(ButtonKind.Accent);
@@ -103,7 +107,7 @@ internal sealed class LauncherForm : Form
         // The chrome is hand-painted at fixed pixel coordinates, so auto-scaling would
         // move the controls out from under the cards drawn behind them.
         AutoScaleMode = AutoScaleMode.None;
-        ClientSize = new Size(680, 428);
+        ClientSize = new Size(680, 486);   // height is recomputed by PositionControls
         BackColor = ModernTheme.Ground;
         ForeColor = ModernTheme.Text;
         Font = ModernTheme.Ui();
@@ -117,6 +121,8 @@ internal sealed class LauncherForm : Form
         _account.Box.Text = options.AccountId ?? config.AccountId;
         _password.Box.Text = config.Password;
         _saveCredentials.Checked = config.SaveCredentials;
+        _windowed.Checked = config.Windowed;
+        _gamePath.Box.TextChanged += (_, _) => RefreshResolutionOptions();
         _gamePath.Box.Text =
             ResolveInitialGamePath(options.GamePath, config.GamePath) ?? string.Empty;
         SetStatus(configError ?? "Ready.",
@@ -186,6 +192,9 @@ internal sealed class LauncherForm : Form
             _password.Box.UseSystemPasswordChar = !_showPassword.Checked;
 
         _saveCredentials.Text = "Remember me (saved as plain text)";
+        _windowed.Text = "Windowed mode";
+        _resolution.SelectedIndexChanged += (_, _) =>
+            _config.Resolution = SelectedResolution();
 
         _updateButton.Text = "Check for Updates";
         _updateButton.Font = ModernTheme.Ui(8.5F, FontStyle.Bold);
@@ -211,41 +220,209 @@ internal sealed class LauncherForm : Form
 
         Controls.AddRange(
         [
-            _account, _password, _gamePath, _showPassword, _saveCredentials,
+            _account, _password, _gamePath, _showPassword, _windowed, _resolution,
+            _saveCredentials,
             _browseButton, _updateButton, _loginButton, _cancelButton, _statusLabel,
             _overallProgress, _fileProgress, _news
         ]);
 
         PositionControls();
+        RefreshResolutionOptions();
+    }
+
+
+    /// <summary>
+    /// Scaled window sizes offered in the drop-down, all 4:3 so the client's own 800x600
+    /// layout is never letterboxed or distorted.
+    ///
+    /// Non-integer multiples are included because a whole 2x does not fit a 1080p desktop.
+    /// They do scale less evenly - the picture is stretched with point sampling, so at 1.6x
+    /// some source pixels cover two screen pixels and some one - but 1.6x reads far better
+    /// than 1.5x, whose 3/2 ratio doubles every other pixel and produces a hard stripe.
+    /// </summary>
+    private static readonly (string Label, int Width, int Height)[] ScaleOptions =
+    [
+        ("Native 800 x 600", 800, 600),
+        ("1024 x 768  (128%)", 1024, 768),
+        ("1280 x 960  (160%, recommended)", 1280, 960),
+        ("1440 x 1080  (180%)", 1440, 1080),
+        ("1600 x 1200  (200%, exact 2x)", 1600, 1200),
+        ("1920 x 1440  (240%)", 1920, 1440),
+        ("2048 x 1536  (256%)", 2048, 1536),
+        ("2560 x 1920  (320%)", 2560, 1920),
+        ("2880 x 2160  (360%, fills 4K height)", 2880, 2160),
+        ("3200 x 2400  (400%, exact 4x)", 3200, 2400)
+    ];
+
+    /// <summary>
+    /// Whether dinput.dll sits beside the game.
+    ///
+    /// Windowed mode and the upscale are both implemented by that DLL, not by the client.
+    /// It normally arrives with an update, but if it is missing the launcher must not pass
+    /// -windowed or -scale: - the client would receive flags nothing in the process
+    /// understands.
+    /// </summary>
+    private static bool HasClientDll(string gamePath)
+    {
+        string? directory = Path.GetDirectoryName(gamePath);
+        return directory != null && File.Exists(Path.Combine(directory, "dinput.dll"));
+    }
+
+    /// <summary>
+    /// Fills the resolution list, hiding sizes that would not fit on screen, and disables
+    /// the whole thing when the DLL that implements scaling is not present.
+    /// </summary>
+    private void RefreshResolutionOptions()
+    {
+        string gamePath = _gamePath.Box.Text.Trim();
+        bool available = gamePath.Length != 0 && File.Exists(gamePath) &&
+                         HasClientDll(gamePath);
+        // TEMPORARY: listing every size regardless of what the monitor can show, so
+        // oversized windows can be tested deliberately. Set this back to true to hide
+        // sizes that do not fit - without it the launcher will happily open a window
+        // larger than the screen.
+        const bool filterToWorkArea = false;
+        Rectangle work = Screen.FromControl(this).WorkingArea;
+        string wanted = _resolution.SelectedItem?.ToString() ?? _config.Resolution;
+
+        _resolution.BeginUpdate();
+        _resolution.Items.Clear();
+        foreach ((string label, int width, int height) in ScaleOptions)
+        {
+            // Allow native always; otherwise only what actually fits, with room for the
+            // title bar and border, so the launcher cannot produce an off-screen window.
+            if (!filterToWorkArea || width == 800 ||
+                (width <= work.Width && height + 60 <= work.Height))
+            {
+                _resolution.Items.Add(label);
+            }
+        }
+        _resolution.EndUpdate();
+
+        int index = 0;
+        for (int i = 0; i < _resolution.Items.Count; i++)
+        {
+            string label = _resolution.Items[i]?.ToString() ?? string.Empty;
+            if (label == wanted || LabelMatchesSize(label, _config.Resolution))
+            {
+                index = i;
+                break;
+            }
+        }
+        _resolution.SelectedIndex = _resolution.Items.Count == 0 ? -1 : index;
+
+        _resolution.Enabled = available;
+        _windowed.Enabled = available;
+    }
+
+    private static bool LabelMatchesSize(string label, string size)
+    {
+        if (size.Length == 0)
+        {
+            return false;
+        }
+        foreach ((string candidate, int width, int height) in ScaleOptions)
+        {
+            if (candidate == label)
+            {
+                return string.Equals(size, $"{width}x{height}",
+                    StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        return false;
+    }
+
+    /// <summary>The selected size as WIDTHxHEIGHT, or empty for native.</summary>
+    private string SelectedResolution()
+    {
+        string label = _resolution.SelectedItem?.ToString() ?? string.Empty;
+        foreach ((string candidate, int width, int height) in ScaleOptions)
+        {
+            if (candidate == label)
+            {
+                return width == 800 ? string.Empty : $"{width}x{height}";
+            }
+        }
+        return string.Empty;
     }
 
     /// <summary>
     /// Absolute placement rather than nested layout panels: the panels paint their own
     /// backgrounds and would punch opaque rectangles through the drawn cards.
     /// </summary>
+    /// <summary>
+    /// Places every control in one downward pass and sizes the cards and the window from
+    /// where it ends up.
+    ///
+    /// This used to be a list of absolute coordinates, with the field captions carrying a
+    /// second, separate set inside OnPaint. Adding the resolution row meant editing both
+    /// and adjusting six unrelated numbers, and missing one left "Check for Updates"
+    /// painting its card-coloured rectangle behind the Remember me checkbox. A running
+    /// cursor removes the class of bug: a row can be inserted or resized and everything
+    /// below - including the card, the buttons and the window itself - follows.
+    /// </summary>
     private void PositionControls()
     {
-        // Field captions are drawn in OnPaint above each well, not hosted as labels.
         const int left = 32;
         const int width = 288;
+        const int field = 30;      // text well
+        const int check = 18;      // checkbox row
+        const int caption = 18;    // label above a well
+        const int afterCaption = 4;
+        const int betweenRows = 14;
+        const int cardPadding = 16;
 
-        _account.SetBounds(left, 110, width, 30);
-        _password.SetBounds(left, 166, width, 30);
-        _showPassword.SetBounds(left, 202, 200, 18);
-        _gamePath.SetBounds(left, 244, width - 98, 30);
-        _browseButton.SetBounds(left + width - 90, 244, 90, 30);
-        _saveCredentials.SetBounds(left, 282, width, 18);
+        _captions.Clear();
+        int y = AccountCard.Y + 40;   // clear of the "ACCOUNT" section title
 
+        void Caption(string text)
+        {
+            _captions.Add((text, new Rectangle(left, y, width, caption)));
+            y += caption + afterCaption;
+        }
+
+        Caption("ID");
+        _account.SetBounds(left, y, width, field);
+        y += field + betweenRows;
+
+        Caption("Password");
+        _password.SetBounds(left, y, width, field);
+        y += field + 8;
+
+        _showPassword.SetBounds(left, y, 126, check);
+        _windowed.SetBounds(left + 130, y, width - 130, check);
+        y += check + betweenRows;
+
+        Caption("Game");
+        _gamePath.SetBounds(left, y, width - 98, field);
+        _browseButton.SetBounds(left + width - 90, y, 90, field);
+        y += field + betweenRows;
+
+        Caption("Resolution");
+        _resolution.SetBounds(left, y, width, 26);
+        y += 26 + betweenRows;
+
+        _saveCredentials.SetBounds(left, y, width, check);
+        y += check;
+
+        // The card ends below the last row, and the news card matches it.
+        AccountCard = AccountCard with { Height = y + cardPadding - AccountCard.Y };
+        NewsCard = NewsCard with { Height = AccountCard.Height };
         _news.SetBounds(NewsCard.X + 16, NewsCard.Y + 40, NewsCard.Width - 32,
             NewsCard.Height - 56);
 
-        _updateButton.SetBounds(16, 328, 176, 36);
-        _loginButton.SetBounds(ClientSize.Width - 148, 328, 132, 36);
-        _cancelButton.SetBounds(ClientSize.Width - 148 - 104, 328, 96, 36);
+        // Everything below is measured from the bottom of the cards, not from a constant.
+        int belowCards = AccountCard.Bottom + 18;
+        _updateButton.SetBounds(16, belowCards, 176, 36);
+        _loginButton.SetBounds(ClientSize.Width - 148, belowCards, 132, 36);
+        _cancelButton.SetBounds(ClientSize.Width - 148 - 104, belowCards, 96, 36);
 
-        _statusLabel.SetBounds(16, 374, ClientSize.Width - 130, 18);
-        _overallProgress.SetBounds(16, 398, ClientSize.Width - 32, 6);
-        _fileProgress.SetBounds(16, 408, ClientSize.Width - 32, 6);
+        int belowButtons = belowCards + 36 + 12;
+        _statusLabel.SetBounds(16, belowButtons, ClientSize.Width - 130, 18);
+        _overallProgress.SetBounds(16, belowButtons + 24, ClientSize.Width - 32, 6);
+        _fileProgress.SetBounds(16, belowButtons + 34, ClientSize.Width - 32, 6);
+
+        ClientSize = new Size(ClientSize.Width, belowButtons + 34 + 6 + 12);
     }
 
     // -------------------------------------------------------------------- paint
@@ -263,11 +440,14 @@ internal sealed class LauncherForm : Form
         ModernTheme.SectionTitle(g, "Account", new Point(AccountCard.X + 16, AccountCard.Y + 16));
         ModernTheme.SectionTitle(g, "News", new Point(NewsCard.X + 16, NewsCard.Y + 16));
 
-        ModernTheme.Label(g, "ID", new Rectangle(32, 88, 288, 18));
-        ModernTheme.Label(g, "Password", new Rectangle(32, 144, 288, 18));
-        ModernTheme.Label(g, "Game", new Rectangle(32, 222, 288, 18));
+        // Captions come from the same pass that placed the controls. They used to be
+        // four hardcoded rectangles here, which meant every layout change had to be made
+        // in two places and silently drifted when it was not.
+        foreach ((string caption, Rectangle bounds) in _captions)
+        {
+            ModernTheme.Label(g, caption, bounds);
+        }
 
-        PaintVersion(g);
 
         using Pen frame = new(ModernTheme.Line);
         g.DrawRectangle(frame, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
@@ -280,9 +460,25 @@ internal sealed class LauncherForm : Form
             g.FillEllipse(accent, 18, TitleBarHeight / 2 - 4, 8, 8);
         }
 
+        const int titleLeft = 32;
+        const string title = "DJMAX Online";
+
         using Font font = ModernTheme.Ui(9F, FontStyle.Bold);
-        TextRenderer.DrawText(g, "DJMAX Online", font,
-            new Rectangle(32, 0, 300, TitleBarHeight), ModernTheme.Text,
+        TextRenderer.DrawText(g, title, font,
+            new Rectangle(titleLeft, 0, 300, TitleBarHeight), ModernTheme.Text,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+
+        // The version sits immediately after the title. Its x is MEASURED rather
+        // than hardcoded, so changing the title or the font moves it correctly
+        // instead of leaving it overlapping or floating.
+        Size titleSize = TextRenderer.MeasureText(g, title, font,
+            new Size(300, TitleBarHeight), TextFormatFlags.NoPadding);
+        using Font versionFont = ModernTheme.Ui(8F);
+        string version =
+            typeof(LauncherForm).Assembly.GetName().Version?.ToString(3) ?? "1.0";
+        TextRenderer.DrawText(g, $"v{version}", versionFont,
+            new Rectangle(titleLeft + titleSize.Width + 8, 0, 80, TitleBarHeight),
+            ModernTheme.TextFaint,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
 
         PaintGlyph(g, MinimiseButton, minimise: true);
@@ -308,15 +504,6 @@ internal sealed class LauncherForm : Form
 
         g.DrawLine(pen, cx - 4.5F, cy - 4.5F, cx + 4.5F, cy + 4.5F);
         g.DrawLine(pen, cx + 4.5F, cy - 4.5F, cx - 4.5F, cy + 4.5F);
-    }
-
-    private void PaintVersion(Graphics g)
-    {
-        using Font font = ModernTheme.Ui(8F);
-        string version = typeof(LauncherForm).Assembly.GetName().Version?.ToString(3) ?? "1.0";
-        TextRenderer.DrawText(g, $"v{version}", font,
-            new Rectangle(ClientSize.Width - 116, 374, 100, 18), ModernTheme.TextFaint,
-            TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
     }
 
     // ------------------------------------------------------------------ updates
@@ -721,7 +908,8 @@ internal sealed class LauncherForm : Form
 
             _gamePath.Box.Text = gamePath;
             SaveCurrentConfig(showError: true);
-            StartGame(gamePath, token, _localeEmulator, _localeEmulatorArgs,
+            StartGame(gamePath, token, _windowed.Checked, SelectedResolution(),
+                _localeEmulator, _localeEmulatorArgs,
                 _localeCodePage, _localeName, _localeProfile);
             SetStatus($"Connected. Ticket expires in {response.ExpiresInSeconds}s.",
                 ModernTheme.Ok);
@@ -793,6 +981,8 @@ internal sealed class LauncherForm : Form
                 _saveCredentials.Checked ? _account.Box.Text.Trim() : string.Empty;
             _config.Password = _saveCredentials.Checked ? _password.Box.Text : string.Empty;
             _config.GamePath = _gamePath.Box.Text.Trim();
+            _config.Windowed = _windowed.Checked;
+            _config.Resolution = SelectedResolution();
             _config.Save(_configPath);
         }
         catch (Exception ex) when (!showError)
@@ -821,11 +1011,28 @@ internal sealed class LauncherForm : Form
     /// per-process fix is to start the game under a tool that hooks those conversions.
     /// </summary>
     private static void StartGame(
-        string gamePath, string token, string localeEmulator, string localeEmulatorArgs,
+        string gamePath, string token, bool windowed, string resolution,
+        string localeEmulator, string localeEmulatorArgs,
         int localeCodePage, string localeName, string localeProfile)
     {
         // sub_4B0C30 retains the third lpCmdLine argument when ConnectFromNM=0.
-        string[] arguments = ["local", "ticket", token];
+        List<string> arguments = ["local", "ticket", token];
+
+        // -windowed and -scale: are both handled by dinput.dll, not by the client. It
+        // ships with the update, but if it is absent neither flag would be read by
+        // anything, so add neither rather than leaving stray arguments on the command
+        // line of a client that never asked for them.
+        if (HasClientDll(gamePath))
+        {
+            if (windowed)
+            {
+                arguments.Add("-windowed");
+            }
+            if (resolution.Length != 0)
+            {
+                arguments.Add("-scale:" + resolution);
+            }
+        }
 
         if (string.IsNullOrWhiteSpace(localeEmulator))
         {
