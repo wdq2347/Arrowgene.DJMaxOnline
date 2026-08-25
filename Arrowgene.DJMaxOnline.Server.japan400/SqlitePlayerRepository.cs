@@ -342,6 +342,7 @@ public sealed class SqlitePlayerRepository : IPlayerRepository
             FROM course_records AS c
             JOIN players AS p ON p.user_id = c.user_id
             WHERE c.course_id = $course_id AND c.key_mode = $key_mode
+              AND c.clears > 0
             ORDER BY c.score DESC, c.combo DESC, c.user_id ASC
             LIMIT $limit;
             """;

@@ -139,8 +139,11 @@ public sealed class LocalPlayerStore
                     .ToArray();
             }
 
+            // Clears > 0 for the same reason the SQL board filters on it: a build
+            // before this fix may already have written a row for a failed run.
             CourseRecord? record = profile.CourseRecords.FirstOrDefault(entry =>
-                entry.CourseId == courseId && entry.KeyMode == keyMode);
+                entry.CourseId == courseId && entry.KeyMode == keyMode &&
+                entry.Clears > 0);
             return record == null
                 ? []
                 : new CourseRankEntry[]
@@ -155,10 +158,10 @@ public sealed class LocalPlayerStore
     /// clear. Score and combo are what the ranking board draws; the clear count is not.
     /// </summary>
     /// <param name="cleared">
-    /// Whether the run actually met the course's [Clear] objectives. The best score and
-    /// combo record either way - the player did play it - but the CLEAR COUNT only moves
-    /// on a real clear, or reaching the last stage of a course you kept failing would read
-    /// as having beaten it.
+    /// Whether the run actually met the course's [Clear] objectives. A run that did not
+    /// records NOTHING - not the score, not the combo, not the clear count. Reaching the
+    /// last stage is not clearing a course, and score/combo are what the ranking board
+    /// draws, so keeping them for a failed attempt is what let failures rank.
     /// </param>
     /// <param name="keyMode">
     /// The channel the run happened on. SEOUL and TOKYO serve different charts, so their
@@ -170,6 +173,22 @@ public sealed class LocalPlayerStore
         {
             CourseRecord? record = profile.CourseRecords.FirstOrDefault(entry =>
                 entry.CourseId == courseId && entry.KeyMode == keyMode);
+
+            // A FAILED RUN RECORDS NOTHING, AND CREATES NO ROW. Score and combo are
+            // the two columns the ranking board draws, so keeping them for a run
+            // that missed the [Clear] objectives put failures straight onto the
+            // leaderboard - reaching the final stage was enough to rank, which is
+            // the whole thing those conditions exist to stop. Only the clear count
+            // used to be gated.
+            //
+            // Returning early BEFORE the row is created matters as well: an empty
+            // record still ranks as a zero-score entry on the single-player board.
+            if (!cleared)
+            {
+                return record ??
+                    new CourseRecord { CourseId = courseId, KeyMode = keyMode };
+            }
+
             if (record == null)
             {
                 record = new CourseRecord { CourseId = courseId, KeyMode = keyMode };
@@ -178,7 +197,7 @@ public sealed class LocalPlayerStore
 
             record.Score = Math.Max(record.Score, score);
             record.Combo = Math.Max(record.Combo, combo);
-            if (cleared && record.Clears < uint.MaxValue)
+            if (record.Clears < uint.MaxValue)
             {
                 record.Clears++;
             }

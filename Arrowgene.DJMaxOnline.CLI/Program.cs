@@ -102,6 +102,39 @@ public partial class Program
         string profilePath = ResolvePlayerProfilePath(args);
         string databasePath = ResolvePlayerDatabasePath(setting, args);
         SqlitePlayerRepository players = new(databasePath);
+        bool removeInvalid = args.Any(argument =>
+            string.Equals(argument, "--removeinvalid", StringComparison.OrdinalIgnoreCase));
+        if (removeInvalid)
+        {
+            string configuredCourseScript = Path.Combine(
+                setting.ShopDataDirectory, "CourseSection.ini");
+            string? courseScript = File.Exists(configuredCourseScript)
+                ? configuredCourseScript
+                : CourseCatalog.FindCourseScript();
+            if (courseScript == null)
+            {
+                throw new FileNotFoundException(
+                    "--removeinvalid requires DATA/CourseSection.ini.");
+            }
+            CourseCatalog courses = CourseCatalog.Load(courseScript);
+            InvalidCourseClearRemovalReport report =
+                players.RemoveInvalidCourseClears(courses);
+            foreach (RemovedInvalidCourseClear removed in report.RemovedRecords)
+            {
+                Logger.Info(
+                    $"Removed invalid course clear: {removed.Nickname} " +
+                    $"(user {removed.UserId}), course {removed.CourseId + 1} " +
+                    $"\"{removed.CourseName}\", {removed.KeyMode}-key, " +
+                    $"score {removed.Score}, combo {removed.Combo}, " +
+                    $"{removed.Clears} claimed clear(s).");
+            }
+            Logger.Info(
+                $"--removeinvalid examined {report.Examined} ranking record(s): " +
+                $"removed {report.Removed}, kept {report.Valid} valid, and preserved " +
+                $"{report.Unverifiable} without conclusive stage history. Database: " +
+                databasePath);
+            return;
+        }
         bool createUser = TryResolveCreateUser(
             args, out string accountId, out string nickname, out byte gender);
         string? setPasswordSelector = ResolveOption(args, "--set-password");

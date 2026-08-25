@@ -207,7 +207,7 @@ public class CoursePacketTest
     }
 
     [Test]
-    public void AFailedCourseStillRanksButDoesNotCountAsAClear()
+    public void AFailedCourseRecordsNothingAtAll()
     {
         string directory = ShopCatalog.FindDataDirectory(
             Directory.GetCurrentDirectory(),
@@ -217,20 +217,36 @@ public class CoursePacketTest
             new LocalPlayerProfile { Nickname = "Blade", UserId = 9 },
             ShopCatalog.Load(directory));
 
+        // A run that misses the [Clear] objectives must leave no trace. Score and combo
+        // are the two columns the ranking board draws, so recording them for a failed
+        // attempt put failures on the leaderboard - reaching the final stage was enough
+        // to rank, which is the whole thing the conditions exist to stop.
         CourseRecord missed = store.RecordCourseClear(3, FiveKey, 700, 300, cleared: false);
         Assert.Multiple(() =>
         {
-            Assert.That(missed.Score, Is.EqualTo(700u), "the run still happened");
-            Assert.That(missed.Combo, Is.EqualTo(300u));
+            Assert.That(missed.Score, Is.EqualTo(0u), "a failed run must not rank");
+            Assert.That(missed.Combo, Is.EqualTo(0u), "a failed run must not rank");
             Assert.That(missed.Clears, Is.EqualTo(0u),
                 "reaching the last stage is not clearing the course");
         });
+        Assert.That(store.CourseRanking(3, FiveKey), Is.Empty,
+            "an unheld course must not appear on the board at all");
 
         CourseRecord cleared = store.RecordCourseClear(3, FiveKey, 400, 120, cleared: true);
         Assert.Multiple(() =>
         {
-            Assert.That(cleared.Score, Is.EqualTo(700u), "the failed run's best score stands");
+            Assert.That(cleared.Score, Is.EqualTo(400u),
+                "the first real clear sets the record; the failed 700 is gone");
+            Assert.That(cleared.Combo, Is.EqualTo(120u));
             Assert.That(cleared.Clears, Is.EqualTo(1u));
+        });
+
+        // A later failure must not damage a record already earned.
+        CourseRecord after = store.RecordCourseClear(3, FiveKey, 999, 999, cleared: false);
+        Assert.Multiple(() =>
+        {
+            Assert.That(after.Score, Is.EqualTo(400u), "a failed run cannot raise the best");
+            Assert.That(after.Clears, Is.EqualTo(1u), "nor add a clear");
         });
     }
 
@@ -286,9 +302,23 @@ public class CoursePacketTest
             Assert.That(
                 profile.CourseRecords.Single(r => r.KeyMode == FiveKey).Clears,
                 Is.EqualTo(1u));
+            // The 7-key attempt failed, so it leaves no row at all - a stronger form of
+            // the same guarantee than a row reading zero clears. What matters is that
+            // clearing it in SEOUL did not mark it cleared in TOKYO.
+            Assert.That(profile.CourseRecords.Any(r => r.KeyMode == SevenKey), Is.False,
+                "a failed run must not create a record for the other channel");
+        });
+
+        // And a real 7-key clear gets its own separate row rather than touching the 5-key one.
+        store.RecordCourseClear(3, SevenKey, 400, 100, cleared: true);
+        Assert.Multiple(() =>
+        {
             Assert.That(
-                profile.CourseRecords.Single(r => r.KeyMode == SevenKey).Clears,
-                Is.EqualTo(0u));
+                profile.CourseRecords.Single(r => r.KeyMode == FiveKey).Score,
+                Is.EqualTo(500u));
+            Assert.That(
+                profile.CourseRecords.Single(r => r.KeyMode == SevenKey).Score,
+                Is.EqualTo(400u));
         });
     }
 }
